@@ -70,16 +70,16 @@ notebook = {
             "metadata": {},
             "outputs": [],
             "source": [
-                "# 6. Compile Results into a Single Benchmark Report\\n",
-                "!python3 scripts/generate_benchmark_report.py \\\\\\n",
-                "    --logs tests/01_ppo_research_run/results/training.log \\\\\\n",
-                "           tests/02_td3_research_run/results/training.log \\\\\\n",
-                "           tests/03_sac_research_run/results/training.log \\\\\\n",
-                "    --labels PPO TD3 SAC \\\\\\n",
-                "    --out benchmark_results_compiled.pdf\\n",
-                "\\n",
-                "from IPython.display import IFrame\\n",
-                "IFrame(\\"benchmark_results_compiled.pdf\\", width=800, height=600)"
+                "# 6. Compile Results into a Single Benchmark Report\n",
+                "!python3 scripts/generate_benchmark_report.py \\\n",
+                "    --logs tests/01_ppo_research_run/results/training.log \\\n",
+                "           tests/02_td3_research_run/results/training.log \\\n",
+                "           tests/03_sac_research_run/results/training.log \\\n",
+                "    --labels PPO TD3 SAC \\\n",
+                "    --out benchmark_results_compiled.pdf\n",
+                "\n",
+                "from IPython.display import IFrame\n",
+                "IFrame('benchmark_results_compiled.pdf', width=800, height=600)"
             ]
         }
     ],
