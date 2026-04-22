@@ -1,0 +1,8 @@
+board_width: 20
+board_height: 20
+n_envs: 8
+n_steps: 128
+batch_size: 128
+component_rotations: 4
+board_dir: data/boards/rl_pcb/base
+total_timesteps: 50000

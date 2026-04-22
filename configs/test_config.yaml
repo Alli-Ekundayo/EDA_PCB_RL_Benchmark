@@ -1,0 +1,12 @@
+batch_size: 16
+board_dir: data/boards/synthetic
+board_height: 32
+board_width: 32
+checkpoint_dir: runs/test_run/checkpoints
+checkpoint_freq: 32
+lr: 0.001
+n_envs: 2
+n_epochs: 1
+n_steps: 16
+seed: 42
+total_timesteps: 64

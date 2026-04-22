@@ -1,0 +1,1 @@
+{"learning_rate": 0.0001, "buffer_size": 500000, "batch_size": 16, "batch_length": 64, "gamma": 0.99, "imag_horizon": 15, "expl_noise": 0.1}

@@ -1,0 +1,36 @@
+{
+  "source": "RL_PCB expected_results/evaluation_report_mean.pdf",
+  "metric_definition": "20_percent_overlap_mean_from_first_run_suffix_0",
+  "models": {
+    "td3_cpu": {
+      "hpwl_20_mean": 21.905,
+      "routed_20_mean": 25.525,
+      "n_boards": 2
+    },
+    "td3_cuda": {
+      "hpwl_20_mean": 29.9567,
+      "routed_20_mean": 35.1467,
+      "n_boards": 3
+    },
+    "sac_cpu": {
+      "hpwl_20_mean": 31.19,
+      "routed_20_mean": 33.2533,
+      "n_boards": 3
+    },
+    "sac_cuda": {
+      "hpwl_20_mean": 29.69,
+      "routed_20_mean": 33.6133,
+      "n_boards": 3
+    },
+    "dreamerv3_cuda": {
+      "hpwl_20_mean": 29.9567,
+      "routed_20_mean": 35.1467,
+      "n_boards": 3
+    },
+    "dreamerv3_cpu_fast": {
+      "hpwl_20_mean": 69.1233,
+      "routed_20_mean": 66.35,
+      "n_boards": 3
+    }
+  }
+}
