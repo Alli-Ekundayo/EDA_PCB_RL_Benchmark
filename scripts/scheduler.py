@@ -35,10 +35,16 @@ def run_experiment(algo, seed, config, total_timesteps, run_dir):
             print(f"[SUCCESS] {algo} (seed {seed})")
             return True
         else:
-            print(f"[FAILED] {algo} (seed {seed}). See {checkpoint_dir / 'process.out'}")
+            print(f"[FAILED] {algo} (seed {seed}). Error Log Snippet:")
+            # Print last 20 lines of the output to help debugging
+            lines = process.stdout.splitlines()
+            for line in lines[-20:]:
+                print(f"  > {line}")
             return False
     except Exception as e:
         print(f"[ERROR] {algo} (seed {seed}): {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def main():
