@@ -134,7 +134,7 @@ def generate_benchmark_report(log_files, labels, output_pdf, title="RL PCB Bench
     # Conclusion text
     story.append(Paragraph("Conclusion", styles['Heading2']))
     best_algo = max(final_metrics, key=lambda x: float(x[2]))[0]
-    conclusion_text = (f"Based on the training runs up to the max timesteps, the <b>{best_algo}</b> algorithm "
+    conclusion_text = (f"Based on the complete training runs, the <b>{best_algo}</b> algorithm "
                        f"achieved the highest final smoothed reward. This visualization smoothed the "
                        f"learning curves using a moving average window of {window_size} to clearly display "
                        f"the learning trends across the different models.")

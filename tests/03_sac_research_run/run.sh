@@ -12,9 +12,9 @@ echo "=== Starting Research Run: $EXPERIMENT_NAME ==="
 # 1. Training Phase
 echo "--- Phase 1: Training ---"
 python3 training/train.py \
-    --config configs/base.yaml \
+    --config configs/sac_td3_benchmark.yaml \
     --algo sac \
-    --total_timesteps 10000 \
+    --total_timesteps 300000 \
     --checkpoint_dir "$OUTPUT_DIR/checkpoints" \
     --log_file "$OUTPUT_DIR/training.log"
 
