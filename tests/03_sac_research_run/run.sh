@@ -9,19 +9,24 @@ mkdir -p $OUTPUT_DIR
 
 echo "=== Starting Research Run: $EXPERIMENT_NAME ==="
 
-# 1. Training Phase
-echo "--- Phase 1: Training ---"
-python3 training/train.py \
+# 1. Training Phase (Parallel with Auto-Seeds)
+echo "--- Phase 1: Training (Parallel) ---"
+python3 scripts/scheduler.py \
     --config configs/base.yaml \
-    --algo sac \
+    --algos sac \
+    --auto_seeds \
+    --num_seeds 3 \
     --total_timesteps 10000 \
-    --checkpoint_dir "$OUTPUT_DIR/checkpoints" \
-    --log_file "$OUTPUT_DIR/training.log"
+    --run_dir "$OUTPUT_DIR" \
+    --max_workers 3
 
 # 2. Evaluation & Video Generation
 echo "--- Phase 2: Evaluation & Visualization ---"
-LATEST_CHECKPOINT=$(ls -t $OUTPUT_DIR/checkpoints/*.pt 2>/dev/null | head -1)
+# Find the latest checkpoint from any seed directory
+LATEST_CHECKPOINT=$(find $OUTPUT_DIR -name "*.pt" -printf '%T+ %p\n' | sort -r | head -1 | cut -d' ' -f2)
 if [ -z "$LATEST_CHECKPOINT" ]; then echo "Error: No checkpoint found"; exit 1; fi
+
+echo "Using checkpoint for visualization: $LATEST_CHECKPOINT"
 
 python3 -c "
 import torch
@@ -34,7 +39,8 @@ from torch_geometric.data import Batch
 
 config = Config(algo='sac')
 device = torch.device('cpu')
-base_env = PCBEnv(board_dir='data/boards/rl_pcb/base_opt/evaluation.pcb')
+# Use evaluation board
+base_env = PCBEnv(board_path='data/boards/rl_pcb/base/evaluation.pcb')
 env = ContinuousToDiscrete(base_env)
 obs, info = env.reset()
 
@@ -61,7 +67,10 @@ while not (terminated or truncated):
 env.unwrapped.tracker.save_video('$OUTPUT_DIR/placement_animation.mp4')
 "
 
-# 3. Report Generation
-echo "--- Phase 3: Report Generation ---"
-python3 scripts/report_generator.py --log "$OUTPUT_DIR/training.log" --out "$OUTPUT_DIR/research_report.pdf"
+# 3. Aggregated Report Generation
+echo "--- Phase 3: Aggregated Report Generation ---"
+python3 scripts/report_generator.py \
+    --work_dir "$OUTPUT_DIR" \
+    --out "$OUTPUT_DIR/research_report.pdf"
+
 echo "=== Research Run Completed! ==="

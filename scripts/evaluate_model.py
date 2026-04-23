@@ -2,6 +2,7 @@
 import os
 import glob
 import argparse
+import platform
 import numpy as np
 import torch
 import pandas as pd
@@ -9,8 +10,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
@@ -40,35 +42,28 @@ def plot_placement(board, out_path):
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.set_xlim(0, board.width)
     ax.set_ylim(0, board.height)
-    ax.invert_yaxis()  # Match standard grid coordinates
+    ax.invert_yaxis()
     
-    # Grid lines
     ax.set_xticks(np.arange(0, board.width+1, 1))
     ax.set_yticks(np.arange(0, board.height+1, 1))
     ax.grid(color='gray', linestyle='-', linewidth=0.5, alpha=0.15)
     
-    # Plot Keepout regions
     for x in range(board.width):
         for y in range(board.height):
             if board.keepout[x, y]:
                 ax.add_patch(patches.Rectangle((x, y), 1, 1, facecolor='#e74c3c', alpha=0.3))
                 
-    # Plot Components
     for comp in board.components:
         if comp.placed:
             x, y = comp.position
             fp = comp.footprint_for_rotation()
             w, h = fp.shape
-            # For visualization, draw the footprint properly
             for dx in range(w):
                 for dy in range(h):
                     if fp[dx, dy]:
                         ax.add_patch(patches.Rectangle((x+dx, y+dy), 1, 1, facecolor='#3498db', alpha=0.7, edgecolor='#2980b9'))
-            
-            # Label
             ax.text(x + w/2, y + h/2, comp.ref, ha='center', va='center', color='black', fontweight='bold', fontsize=8)
             
-    # Draw Ratsnest (approximating routes for visual context)
     centers = {}
     for comp in board.components:
         if comp.placed:
@@ -84,45 +79,87 @@ def plot_placement(board, out_path):
                 p2 = centers[placed_refs[j]]
                 ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='#2ecc71', alpha=0.5, linestyle='--', linewidth=1.5)
 
-    plt.title("Physical PCB Placement & Simulated Routing", fontsize=18, fontweight='bold', pad=20)
-    
-    # Ensure axes are equal aspect ratio
+    plt.title("Physical PCB Placement & Routing Skeleton", fontsize=18, fontweight='bold', pad=20)
     ax.set_aspect('equal')
-    
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.savefig(out_path.replace('.png', '.svg'), format='svg', bbox_inches='tight')
     plt.close()
 
-def build_pdf_report(metrics, plot_path, output_pdf, title="PCB Evaluation Report"):
+def build_pdf_report(metrics, plot_path, output_pdf, title="Reinforcement Learning - Evaluation Report"):
     doc = SimpleDocTemplate(output_pdf, pagesize=A4)
     styles = getSampleStyleSheet()
     story = []
     
-    header_style = ParagraphStyle('Header', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#2c3e50"), spaceAfter=20)
+    header_style = ParagraphStyle('Header', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#1A3A3A"), spaceAfter=20)
     story.append(Paragraph(title, header_style))
-    
+    story.append(Paragraph("Focus: Physical Placement Quality and Routability Validation", styles['Normal']))
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(Paragraph(f"<b>Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(1, 0.3 * inch))
+
+    # Environment Info
+    env_info = [
+        ["Hardware & Software", ""],
+        ["Platform", platform.platform()],
+        ["Python", platform.python_version()],
+        ["PyTorch", torch.__version__],
+    ]
+    story.append(Paragraph("Validation Environment", styles['Heading2']))
+    t_env = Table(env_info, colWidths=[2 * inch, 4 * inch])
+    t_env.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D1E8E2")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+    ]))
+    story.append(t_env)
+    story.append(Spacer(1, 0.4 * inch))
+
     # Plot Image
     if os.path.exists(plot_path):
-        story.append(Image(plot_path, width=6*inch, height=6*inch))
+        story.append(Paragraph("Placement Visualization", styles['Heading2']))
+        story.append(Image(plot_path, width=5.5*inch, height=5.5*inch))
         story.append(Spacer(1, 0.2*inch))
         
+    story.append(PageBreak())
+
     # Metrics Table
     story.append(Paragraph("Physical Routing & Placement Metrics", styles['Heading2']))
-    table_data = [["Metric Name", "Value"]]
+    story.append(Paragraph("These metrics represent the 'ground truth' for layout quality.", styles['Italic']))
+    story.append(Spacer(1, 0.1 * inch))
     
+    table_data = [["Metric Name", "Value", "Description"]]
+    
+    descriptions = {
+        "hpwl": "Half-Perimeter Wire Length (Estimated)",
+        "routed_wirelength_mm": "Actual Routed Wire Length from Rust Router",
+        "invalid_actions": "DRC Violations (Overlaps/Keepouts hit)",
+        "routability_proxy": "Heuristic estimate of routing success",
+        "num_vias": "Number of layer transitions (vias)",
+        "total_nets": "Total number of connections in netlist",
+        "components_placed": "Count of successfully placed components"
+    }
+
     for k, v in metrics.items():
         formatted_name = k.replace("_", " ").title()
-        formatted_val = f"{v:.4f}" if isinstance(v, float) else str(v)
-        table_data.append([formatted_name, formatted_val])
+        formatted_val = f"{v:.4f}" if isinstance(v, (float, np.float64, np.float32)) else str(v)
+        desc = descriptions.get(k.lower(), "Physical metric")
+        table_data.append([formatted_name, formatted_val, desc])
         
-    t = Table(table_data, colWidths=[3 * inch, 2 * inch])
+    t = Table(table_data, colWidths=[1.8 * inch, 1.2 * inch, 3.0 * inch])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#ecf0f1")),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D1E8E2")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         ('PADDING', (0, 0), (-1, -1), 6),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
     ]))
     story.append(t)
+    
+    # Routability Summary
+    is_fully_routed = metrics.get("general_routes_established", 0) == metrics.get("total_nets", 1)
+    status_color = colors.green if is_fully_routed else colors.red
+    story.append(Spacer(1, 0.4 * inch))
+    story.append(Paragraph(f"<b>Final Routing Status: {'SUCCESS' if is_fully_routed else 'PARTIAL'}</b>", 
+                          ParagraphStyle('Status', parent=styles['Normal'], textColor=status_color, fontSize=12)))
+
     doc.build(story)
 
 def main():
@@ -135,9 +172,8 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
     
-    print("--- Starting Physical PCB Evaluation ---")
+    print("--- Starting Physical PCB Evaluation (Evaluation Report Focus) ---")
     
-    # 1. Load config and find best checkpoint
     config = Config.from_yaml(args.config)
     checkpoint_path = find_best_checkpoint(args.work_dir)
     if not checkpoint_path:
@@ -148,7 +184,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     rotations = tuple(90 * i for i in range(config.component_rotations))
     
-    # 2. Setup Environment
     print(f"Initializing environment with {args.board_file}...")
     try:
         env = PCBEnv(board_path=args.board_file, width=config.board_width, height=config.board_height, component_rotations=rotations)
@@ -158,7 +193,6 @@ def main():
         print(f"Error: Could not find board file at {args.board_file}")
         return
     
-    # 3. Load Model Weights
     action_dim = env.action_space.n
     model = load_model(
         checkpoint_path=checkpoint_path, 
@@ -170,7 +204,6 @@ def main():
         device=device
     )
     
-    # 4. Agent Placement Decisions
     terminated = truncated = False
     invalid_actions = 0
     total_actions = 0
@@ -196,10 +229,8 @@ def main():
     board = env.board
     print(f"Placement complete. Total Steps: {total_actions}, DRC Violations: {invalid_actions}")
     
-    # 5. Invoke Physical Router (Rust binary when available)
     print("Invoking physical router (Rust pcb_router via UnifiedPCBRouter)...")
     router = UnifiedPCBRouter()
-    # Pass the raw .kicad_pcb source if it exists alongside the board file
     raw_kicad_path: Optional[str] = None
     raw_dir = Path(args.board_file).parent.parent / "base_raw"
     if raw_dir.is_dir():
@@ -209,7 +240,6 @@ def main():
             print(f"  Using KiCad source: {raw_kicad_path}")
     routed_board = router.route(board, kicad_pcb_path=raw_kicad_path)
 
-    # 6. Compute True Performance Metrics
     metrics = summarize_metrics(board, total_actions, invalid_actions)
     metrics["routability_proxy"] = pattern_routability_proxy(board)
     metrics["total_nets"] = len(board.nets)
@@ -217,30 +247,22 @@ def main():
     metrics["total_components"] = len(board.components)
     metrics["general_routes_established"] = len(routed_board.general_routes)
     metrics["differential_routes_established"] = len(routed_board.diff_routes)
-    # Physical routing metrics from Rust binary
+    
     if routed_board.routed_wirelength >= 0:
         metrics["routed_wirelength_mm"] = routed_board.routed_wirelength
         metrics["num_vias"] = float(routed_board.num_vias)
         metrics["num_bends"] = float(routed_board.num_bends)
-    if routed_board.output_kicad_pcb:
-        print(f"  Routed KiCad file: {routed_board.output_kicad_pcb}")
     
-    # 7. Generate Visualizations (PNG & SVG)
     png_path = os.path.join(args.out_dir, "placement_visualization.png")
     plot_placement(board, png_path)
-    print(f"Generated visual outputs at {args.out_dir}/placement_visualization.(png|svg)")
     
-    # 8. Generate PDF Evaluation Reports
-    pdf_path_both = os.path.join(args.out_dir, "evaluation_report_both.pdf")
-    pdf_path_mean = os.path.join(args.out_dir, "evaluation_report_mean.pdf")
-    build_pdf_report(metrics, png_path, pdf_path_both, title="Evaluation Report (Both)")
-    build_pdf_report(metrics, png_path, pdf_path_mean, title="Evaluation Report (Mean)")
+    pdf_output = os.path.join(args.out_dir, "evaluation_report.pdf")
+    build_pdf_report(metrics, png_path, pdf_output)
     
-    print("\n--- Final Evaluation Metrics ---")
+    print(f"\nEvaluation Report generated at: {pdf_output}")
+    print("\n--- Final Physical Metrics ---")
     for k, v in metrics.items():
-        print(f"  {k.replace('_', ' ').title()}: {v:.4f}" if isinstance(v, float) else f"  {k.replace('_', ' ').title()}: {v}")
-    
-    print(f"\nAll evaluation artifacts bundled and saved to: {args.out_dir}")
+        print(f"  {k.replace('_', ' ').title()}: {v:.4f}" if isinstance(v, (float, np.float64)) else f"  {k.replace('_', ' ').title()}: {v}")
 
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@ import argparse
 import subprocess
 import os
 import sys
+import random
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -44,7 +45,9 @@ def main():
     parser = argparse.ArgumentParser(description="Schedule parallel training runs")
     parser.add_argument("--config", type=str, default="configs/base.yaml", help="Path to base config file")
     parser.add_argument("--algos", type=str, nargs="+", default=["ppo", "td3", "sac"], help="List of algorithms to run (e.g. ppo td3 sac)")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45], help="List of seeds")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45], help="List of seeds (ignored if --auto_seeds is set)")
+    parser.add_argument("--num_seeds", type=int, default=None, help="Number of seeds to generate if using --auto_seeds")
+    parser.add_argument("--auto_seeds", action="store_true", help="Generate random seeds automatically")
     parser.add_argument("--total_timesteps", type=int, default=None, help="Override total timesteps")
     parser.add_argument("--run_dir", type=str, default="runs/experiments", help="Base directory for experiment runs")
     parser.add_argument("--max_workers", type=int, default=4, help="Maximum number of parallel workers")
@@ -53,9 +56,17 @@ def main():
     
     Path(args.run_dir).mkdir(parents=True, exist_ok=True)
     
+    # Handle auto-seeding
+    seeds = args.seeds
+    if args.auto_seeds:
+        random.seed(None)  # Use system time for true randomness
+        n = args.num_seeds if args.num_seeds is not None else len(args.seeds)
+        seeds = [random.randint(1, 1000000) for _ in range(n)]
+        print(f"Auto-seeding enabled. Generated {n} random seeds: {seeds}")
+
     tasks = []
     for algo in args.algos:
-        for seed in args.seeds:
+        for seed in seeds:
             tasks.append((algo, seed, args.config, args.total_timesteps, args.run_dir))
             
     print(f"Scheduling {len(tasks)} runs across {args.max_workers} workers...")
