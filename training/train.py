@@ -143,18 +143,33 @@ def train_off_policy(config: Config, device):
         def forward(self, s, g):
             return torch.relu(self.fusion(torch.cat([self.spatial_enc(s), self.gat_enc(g)], dim=-1)))
 
+    pi_hidden = config.pi_hidden_sizes if config.pi_hidden_sizes else [256]
+    qf_hidden = config.qf_hidden_sizes if config.qf_hidden_sizes else [256]
+
     encoder = SharedEncoder(spatial_enc, gat_enc, config.spatial_embed_dim, config.gat_embed_dim, config.fused_dim).to(device)
     if config.algo == "td3":
-        agent = TD3Agent(TD3Actor(encoder, 256).to(device), TD3Critic(copy.deepcopy(encoder), 256).to(device), lr=config.lr, tau=config.tau)
+        agent = TD3Agent(
+            TD3Actor(encoder, pi_hidden).to(device), 
+            TD3Critic(copy.deepcopy(encoder), qf_hidden).to(device), 
+            lr=config.lr, tau=config.tau, gamma=config.gamma,
+            policy_noise=config.policy_noise, noise_clip=config.noise_clip, policy_freq=config.policy_freq
+        )
     else:
-        agent = SACAgent(SACActor(encoder, 256).to(device), SACCritic(copy.deepcopy(encoder), 256).to(device), lr=config.lr, tau=config.tau, alpha=config.alpha)
+        agent = SACAgent(
+            SACActor(encoder, pi_hidden).to(device), 
+            SACCritic(copy.deepcopy(encoder), qf_hidden).to(device), 
+            lr=config.lr, tau=config.tau, gamma=config.gamma, alpha=config.alpha
+        )
 
     replay_buffer = GraphReplayBuffer(config.replay_buffer_size, device=device)
     global_step = 0
     while global_step < config.total_timesteps:
         # 1. Step
         spatial_t = torch.as_tensor(obs[None, ...], dtype=torch.float32, device=device)
-        action = agent.select_action(spatial_t, graph_data)
+        if config.algo == "td3":
+            action = agent.select_action(spatial_t, graph_data, expl_noise=config.expl_noise)
+        else:
+            action = agent.select_action(spatial_t, graph_data)
         
         next_obs, reward, terminated, truncated, next_info = env.step(action)
         done = terminated or truncated
@@ -191,12 +206,14 @@ def main():
     parser.add_argument("--total_timesteps", type=int)
     parser.add_argument("--checkpoint_dir", type=str)
     parser.add_argument("--log_file", type=str)
+    parser.add_argument("--seed", type=int)
     args = parser.parse_args()
 
     config = Config.from_yaml(args.config)
     if args.algo: config.algo = args.algo
     if args.total_timesteps: config.total_timesteps = args.total_timesteps
     if args.checkpoint_dir: config.checkpoint_dir = args.checkpoint_dir
+    if args.seed is not None: config.seed = args.seed
     if args.log_file:
         import training.logger
         training.logger.LOG_FILE = args.log_file

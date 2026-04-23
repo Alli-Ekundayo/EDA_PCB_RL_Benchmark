@@ -7,7 +7,7 @@ notebook = {
             "metadata": {},
             "source": [
                 "# RL PCB Benchmark Comparison\n",
-                "This notebook pulls the EDA_PCB_RL_Benchmark repository, sets up the environment on Google Colab, trains the PPO model (and TD3/SAC models for 300,000 timesteps each), and compiles the results to draw a conclusion."
+                "This notebook pulls the EDA_PCB_RL_Benchmark repository, sets up the environment on Google Colab, trains three RL models (PPO, TD3, SAC) for 10,000 timesteps each, and compiles the results to draw a conclusion."
             ]
         },
         {
@@ -70,16 +70,40 @@ notebook = {
             "metadata": {},
             "outputs": [],
             "source": [
-                "# 6. Compile Results into a Single Benchmark Report\n",
-                "!python3 scripts/generate_benchmark_report.py \\\n",
-                "    --logs tests/01_ppo_research_run/results/training.log \\\n",
-                "           tests/02_td3_research_run/results/training.log \\\n",
-                "           tests/03_sac_research_run/results/training.log \\\n",
-                "    --labels PPO TD3 SAC \\\n",
-                "    --out benchmark_results_compiled.pdf\n",
+                "# 6. Compile Results and Draw Conclusion\n",
+                "import re\n",
+                "import pandas as pd\n",
+                "from IPython.display import display, Markdown\n",
                 "\n",
-                "from IPython.display import IFrame\n",
-                "IFrame('benchmark_results_compiled.pdf', width=800, height=600)"
+                "def parse_log(log_path):\n",
+                "    try:\n",
+                "        rewards = []\n",
+                "        with open(log_path, 'r') as f:\n",
+                "            for line in f:\n",
+                "                match = re.search(r'train/mean_reward=([-+]?\\d*\\.\\d+|\\d+)', line)\n",
+                "                if match:\n",
+                "                    rewards.append(float(match.group(1)))\n",
+                "        return rewards[-1] if rewards else None\n",
+                "    except Exception:\n",
+                "        return None\n",
+                "\n",
+                "results = {\n",
+                "    \"PPO\": parse_log(\"tests/01_ppo_research_run/results/training.log\"),\n",
+                "    \"TD3\": parse_log(\"tests/02_td3_research_run/results/training.log\"),\n",
+                "    \"SAC\": parse_log(\"tests/03_sac_research_run/results/training.log\"),\n",
+                "}\n",
+                "\n",
+                "df = pd.DataFrame(list(results.items()), columns=[\"Algorithm\", \"Final Mean Reward\"])\n",
+                "display(Markdown(\"### Final Benchmark Comparison\"))\n",
+                "display(df)\n",
+                "\n",
+                "best_algo = df.loc[df['Final Mean Reward'].idxmax(), 'Algorithm']\n",
+                "conclusion = f\"\"\"\n",
+                "### Conclusion\n",
+                "Based on the 10,000 timestep training run, the **{best_algo}** algorithm achieved the highest final mean reward. \n",
+                "This indicates its relative stability and performance for the EDA PCB routing task over this horizon.\n",
+                "\"\"\"\n",
+                "display(Markdown(conclusion))"
             ]
         }
     ],

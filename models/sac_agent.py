@@ -6,18 +6,24 @@ import copy
 from torch.distributions import Normal
 
 class SACActor(nn.Module):
-    def __init__(self, encoder, hidden_dim, action_dim=3):
+    def __init__(self, encoder, hidden_dims=[400, 300], action_dim=3):
         super().__init__()
         self.encoder = encoder
-        self.fc1 = nn.Linear(encoder.fused_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.mu = nn.Linear(hidden_dim, action_dim)
-        self.log_std = nn.Linear(hidden_dim, action_dim)
+        
+        layers = []
+        prev_dim = encoder.fused_dim
+        for dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, dim))
+            layers.append(nn.ReLU())
+            prev_dim = dim
+            
+        self.net = nn.Sequential(*layers)
+        self.mu = nn.Linear(prev_dim, action_dim)
+        self.log_std = nn.Linear(prev_dim, action_dim)
         
     def forward(self, spatial_obs, graph_data):
         features = self.encoder(spatial_obs, graph_data)
-        x = F.relu(self.fc1(features))
-        x = F.relu(self.fc2(x))
+        x = self.net(features)
         mu = self.mu(x)
         log_std = torch.clamp(self.log_std(x), -20, 2)
         return mu, log_std
@@ -35,18 +41,24 @@ class SACActor(nn.Module):
         return action, log_prob
 
 class SACCritic(nn.Module):
-    def __init__(self, encoder, hidden_dim, action_dim=3):
+    def __init__(self, encoder, hidden_dims=[400, 300], action_dim=3):
         super().__init__()
         self.encoder = encoder
-        self.fc1 = nn.Linear(encoder.fused_dim + action_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.q_out = nn.Linear(hidden_dim, 1)
+        
+        layers = []
+        prev_dim = encoder.fused_dim + action_dim
+        for dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, dim))
+            layers.append(nn.ReLU())
+            prev_dim = dim
+            
+        self.net = nn.Sequential(*layers)
+        self.q_out = nn.Linear(prev_dim, 1)
         
     def forward(self, spatial_obs, graph_data, action):
         features = self.encoder(spatial_obs, graph_data)
         x = torch.cat([features, action], dim=-1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.net(x)
         return self.q_out(x)
 
 class SACAgent:

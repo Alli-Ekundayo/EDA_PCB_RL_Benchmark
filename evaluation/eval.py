@@ -51,10 +51,12 @@ def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_fea
                 return torch.relu(self.fusion(torch.cat([self.spatial_enc(s), self.gat_enc(g)], dim=-1)))
         
         encoder = SharedEncoder(spatial_enc, gat_enc, config.fused_dim)
+        pi_hidden = config.pi_hidden_sizes if config.pi_hidden_sizes else [256]
+        
         if algo == "td3":
-            model = TD3Actor(encoder, 256).to(device)
+            model = TD3Actor(encoder, pi_hidden).to(device)
         else:
-            model = SACActor(encoder, 256).to(device)
+            model = SACActor(encoder, pi_hidden).to(device)
             
     model.load_state_dict(checkpoint["model"])
     model.eval()

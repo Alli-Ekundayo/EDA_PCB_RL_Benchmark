@@ -6,36 +6,48 @@ import numpy as np
 from models.networks import DualStreamActorCritic # We reuse the encoder logic
 
 class TD3Actor(nn.Module):
-    def __init__(self, encoder, hidden_dim, action_dim=3):
+    def __init__(self, encoder, hidden_dims=[400, 300], action_dim=3):
         super().__init__()
         self.encoder = encoder
-        self.fc1 = nn.Linear(encoder.fused_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.action_out = nn.Linear(hidden_dim, action_dim)
+        
+        layers = []
+        prev_dim = encoder.fused_dim
+        for dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, dim))
+            layers.append(nn.ReLU())
+            prev_dim = dim
+            
+        self.net = nn.Sequential(*layers)
+        self.action_out = nn.Linear(prev_dim, action_dim)
         
     def forward(self, spatial_obs, graph_data):
         features = self.encoder(spatial_obs, graph_data)
-        x = F.relu(self.fc1(features))
-        x = F.relu(self.fc2(x))
+        x = self.net(features)
         return torch.tanh(self.action_out(x))
 
 class TD3Critic(nn.Module):
-    def __init__(self, encoder, hidden_dim, action_dim=3):
+    def __init__(self, encoder, hidden_dims=[400, 300], action_dim=3):
         super().__init__()
         self.encoder = encoder
-        self.fc1 = nn.Linear(encoder.fused_dim + action_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.q_out = nn.Linear(hidden_dim, 1)
+        
+        layers = []
+        prev_dim = encoder.fused_dim + action_dim
+        for dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, dim))
+            layers.append(nn.ReLU())
+            prev_dim = dim
+            
+        self.net = nn.Sequential(*layers)
+        self.q_out = nn.Linear(prev_dim, 1)
         
     def forward(self, spatial_obs, graph_data, action):
         features = self.encoder(spatial_obs, graph_data)
         x = torch.cat([features, action], dim=-1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.net(x)
         return self.q_out(x)
 
 class TD3Agent:
-    def __init__(self, actor, critic, lr=3e-4, tau=0.005, gamma=0.99):
+    def __init__(self, actor, critic, lr=3e-4, tau=0.005, gamma=0.99, policy_noise=0.2, noise_clip=0.5, policy_freq=2):
         self.actor = actor
         self.actor_target = copy.deepcopy(actor)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
@@ -50,11 +62,18 @@ class TD3Agent:
         
         self.tau = tau
         self.gamma = gamma
+        self.policy_noise = policy_noise
+        self.noise_clip = noise_clip
+        self.policy_freq = policy_freq
         self.it = 0
         
-    def select_action(self, spatial_obs, graph_data):
+    def select_action(self, spatial_obs, graph_data, expl_noise=0.0):
         with torch.no_grad():
-            return self.actor(spatial_obs, graph_data).cpu().numpy().flatten()
+            action = self.actor(spatial_obs, graph_data).cpu().numpy().flatten()
+            if expl_noise > 0:
+                noise = np.random.normal(0, expl_noise, size=action.shape)
+                action = np.clip(action + noise, -1, 1)
+            return action
             
     def update(self, replay_buffer, batch_size=64):
         self.it += 1
@@ -78,7 +97,7 @@ class TD3Agent:
         
         with torch.no_grad():
             # Select action according to target policy and add clipped noise
-            noise = (torch.randn_like(actions) * 0.2).clamp(-0.5, 0.5)
+            noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
             next_actions = (self.actor_target(next_spatial_obs, graphs) + noise).clamp(-1, 1)
             
             # Compute target Q value
@@ -104,7 +123,7 @@ class TD3Agent:
         metrics = {"train/critic_loss": (critic1_loss + critic2_loss).item() / 2.0}
         
         # 3. Delayed Actor Update
-        if self.it % 2 == 0:
+        if self.it % self.policy_freq == 0:
             actor_loss = -self.critic1(spatial_obs, graphs, self.actor(spatial_obs, graphs)).mean()
             
             self.actor_opt.zero_grad()

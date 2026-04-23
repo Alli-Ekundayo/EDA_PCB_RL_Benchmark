@@ -46,7 +46,16 @@ class Config:
     algo: str = "ppo"  # Options: ppo, td3, sac
     tau: float = 0.005
     alpha: float = 0.2
-    replay_buffer_size: int = 100_000
+    replay_buffer_size: int = 25000
+    
+    # TD3/SAC specific
+    expl_noise: float = 0.1
+    policy_noise: float = 0.2
+    noise_clip: float = 0.5
+    policy_freq: int = 1
+    pi_hidden_sizes: list = None
+    qf_hidden_sizes: list = None
+
 
     hpwl_weight: float = 1.0
     drc_penalty: float = 10.0
