@@ -173,9 +173,10 @@ def train_off_policy(config: Config, device):
         
         next_obs, reward, terminated, truncated, next_info = env.step(action)
         done = terminated or truncated
+        next_graph_data = _graph_to_data(next_info['graph'])
         
         # 2. Store
-        replay_buffer.push(obs, graph_data, action, next_obs, reward, done)
+        replay_buffer.push(obs, graph_data, action, next_obs, next_graph_data, reward, done)
         
         # 3. Update (Every 10 steps for CPU efficiency)
         if len(replay_buffer) > config.batch_size and global_step % 10 == 0:

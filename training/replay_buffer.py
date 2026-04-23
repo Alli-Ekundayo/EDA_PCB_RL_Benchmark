@@ -3,7 +3,8 @@ import torch
 import numpy as np
 from collections import namedtuple
 
-Transition = namedtuple('Transition', ('spatial_obs', 'graph_data', 'action', 'next_spatial_obs', 'reward', 'done'))
+# Transition now includes BOTH current and next graph data
+Transition = namedtuple('Transition', ('spatial_obs', 'graph_data', 'action', 'next_spatial_obs', 'next_graph_data', 'reward', 'done'))
 
 class GraphReplayBuffer:
     def __init__(self, capacity, device='cpu'):

@@ -93,12 +93,15 @@ class SACAgent:
         actions = torch.as_tensor(np.stack([t.action for t in transitions]), dtype=torch.float32, device=device)
         rewards = torch.as_tensor(np.stack([t.reward for t in transitions]), dtype=torch.float32, device=device).unsqueeze(-1)
         dones = torch.as_tensor(np.stack([t.done for t in transitions]), dtype=torch.float32, device=device).unsqueeze(-1)
+        
+        # Correctly batch BOTH current and next graphs
         graphs = Batch.from_data_list([t.graph_data for t in transitions]).to(device)
+        next_graphs = Batch.from_data_list([t.next_graph_data for t in transitions]).to(device)
         
         with torch.no_grad():
-            next_actions, next_log_probs = self.actor.sample(next_spatial_obs, graphs)
-            target_Q1 = self.critic1_target(next_spatial_obs, graphs, next_actions)
-            target_Q2 = self.critic2_target(next_spatial_obs, graphs, next_actions)
+            next_actions, next_log_probs = self.actor.sample(next_spatial_obs, next_graphs)
+            target_Q1 = self.critic1_target(next_spatial_obs, next_graphs, next_actions)
+            target_Q2 = self.critic2_target(next_spatial_obs, next_graphs, next_actions)
             target_V = torch.min(target_Q1, target_Q2) - self.alpha * next_log_probs
             target_Q = rewards + (1 - dones) * self.gamma * target_V
             

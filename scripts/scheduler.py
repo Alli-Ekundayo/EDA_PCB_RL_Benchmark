@@ -61,7 +61,7 @@ def main():
     if args.auto_seeds:
         random.seed(None)  # Use system time for true randomness
         n = args.num_seeds if args.num_seeds is not None else len(args.seeds)
-        seeds = [random.randint(1, 1000000) for _ in range(n)]
+        seeds = [random.randint(100001, 10000000) for _ in range(n)]
         print(f"Auto-seeding enabled. Generated {n} random seeds: {seeds}")
 
     tasks = []

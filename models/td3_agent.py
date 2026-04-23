@@ -93,16 +93,18 @@ class TD3Agent:
         rewards = torch.as_tensor(np.stack([t.reward for t in transitions]), dtype=torch.float32, device=device).unsqueeze(-1)
         dones = torch.as_tensor(np.stack([t.done for t in transitions]), dtype=torch.float32, device=device).unsqueeze(-1)
         
+        # We now batch BOTH current and next graph data
         graphs = Batch.from_data_list([t.graph_data for t in transitions]).to(device)
+        next_graphs = Batch.from_data_list([t.next_graph_data for t in transitions]).to(device)
         
         with torch.no_grad():
             # Select action according to target policy and add clipped noise
             noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_actions = (self.actor_target(next_spatial_obs, graphs) + noise).clamp(-1, 1)
+            next_actions = (self.actor_target(next_spatial_obs, next_graphs) + noise).clamp(-1, 1)
             
             # Compute target Q value
-            target_Q1 = self.critic1_target(next_spatial_obs, graphs, next_actions)
-            target_Q2 = self.critic2_target(next_spatial_obs, graphs, next_actions)
+            target_Q1 = self.critic1_target(next_spatial_obs, next_graphs, next_actions)
+            target_Q2 = self.critic2_target(next_spatial_obs, next_graphs, next_actions)
             target_Q = rewards + (1 - dones) * self.gamma * torch.min(target_Q1, target_Q2)
             
         # 2. Update Critics
