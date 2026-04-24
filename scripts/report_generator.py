@@ -65,7 +65,13 @@ def extract_hyperparams(work_dir):
                 continue
     return None
 
-def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experiment Report"):
+def _detect_device():
+    """Detect the compute device string for the report title."""
+    if torch.cuda.is_available():
+        return f"cuda_{torch.cuda.current_device()}"
+    return "cpu"
+
+def generate_report(work_dir, output_pdf, title=None):
     # 1. Sweep directory for log files
     log_files = glob.glob(os.path.join(work_dir, "**", "training.log"), recursive=True)
     if not log_files:
@@ -76,10 +82,11 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
         print(f"No training.log files found in {work_dir}")
         return
 
-    algo_data = {}
-    run_details = []
+    # Collect per-algorithm, per-run data
+    # Structure: { algo: [ (run_dir_name, DataFrame), ... ] }
+    algo_runs = {}
 
-    for log_file in log_files:
+    for log_file in sorted(log_files):
         parent_dir = os.path.basename(os.path.dirname(log_file))
         # Logic to extract algo from path or filename
         algo = "ppo" # Default
@@ -88,21 +95,18 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
         
         df = parse_log(log_file)
         if not df.empty:
-            if algo not in algo_data: algo_data[algo] = []
-            algo_data[algo].append(df)
-            
-            rewards = df['mean_reward'].values
-            run_details.append([
-                algo.upper(),
-                parent_dir if parent_dir else "root",
-                f"{np.mean(rewards):.4f}",
-                f"{np.std(rewards):.4f}",
-                f"{rewards[-1]:.4f}"
-            ])
+            if algo not in algo_runs: algo_runs[algo] = []
+            algo_runs[algo].append((parent_dir if parent_dir else "root", df))
 
-    if not algo_data:
+    if not algo_runs:
         print("No valid training data found in logs.")
         return
+
+    # Auto-generate title if not provided
+    device_str = _detect_device()
+    if title is None:
+        algos_str = "_".join(sorted(algo_runs.keys())).upper()
+        title = f"{algos_str}_{device_str}:{algos_str}"
 
     # 2. Process Data and Create Plots
     os.makedirs("tmp_plots", exist_ok=True)
@@ -110,21 +114,36 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
     
     plt.figure(figsize=(10, 6))
     colors_map = {'ppo': '#3498db', 'td3': '#e74c3c', 'sac': '#2ecc71'}
-    summary_data = [["Algorithm", "Runs", "Max Mean Reward", "Final Mean Reward"]]
 
-    for algo, dfs in algo_data.items():
+    # Per-algo run statistics for the table section
+    # { algo: [ { 'run_name': str, 'mean': float, 'std': float }, ... ] }
+    algo_run_stats = {}
+
+    for algo, runs in algo_runs.items():
         color = colors_map.get(algo.lower(), '#9b59b6')
+        dfs = [r[1] for r in runs]
         all_steps = pd.concat([df['global_step'] for df in dfs]).sort_values().unique()
         
         if len(all_steps) == 0: continue
+
+        algo_run_stats[algo] = []
         
         interp_rewards = []
-        for df in dfs:
+        for run_name, df in runs:
             df = df.drop_duplicates(subset=['global_step'])
+            rewards = df['mean_reward'].values
+            run_mean = float(np.mean(rewards))
+            run_std = float(np.std(rewards))
+            algo_run_stats[algo].append({
+                'run_name': run_name,
+                'mean': run_mean,
+                'std': run_std,
+            })
+
             if len(df) == 1:
                 # Handle single-point runs
                 plt.scatter(df['global_step'], df['mean_reward'], color=color, alpha=0.3, s=20)
-                interp_r = np.full_like(all_steps, df['mean_reward'].iloc[0])
+                interp_r = np.full_like(all_steps, df['mean_reward'].iloc[0], dtype=np.float64)
             else:
                 interp_r = np.interp(all_steps, df['global_step'], df['mean_reward'])
                 plt.plot(all_steps, interp_r, color=color, alpha=0.15, linewidth=1)
@@ -139,12 +158,10 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
             plt.fill_between(all_steps, mean_r - std_r, mean_r + std_r, color=color, alpha=0.2)
         else:
             plt.scatter(all_steps, mean_r, color=color, label=f"{algo.upper()} (Point)", s=100, edgecolors='black', zorder=5)
-        
-        summary_data.append([algo.upper(), str(len(dfs)), f"{np.max(mean_r):.4f}", f"{mean_r[-1]:.4f}"])
 
-    plt.title('Training Convergence: Return vs Timesteps', fontsize=14, fontweight='bold')
-    plt.xlabel('Global Step')
-    plt.ylabel('Mean Return')
+    plt.title('Average Return vs Time Step', fontsize=14, fontweight='bold')
+    plt.xlabel('Time Step')
+    plt.ylabel('Average Return')
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend()
     plt.tight_layout()
@@ -160,7 +177,7 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#2E5077"), alignment=1)
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 0.4 * inch))
     
     # Metadata
@@ -171,6 +188,8 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
         ["PyTorch", torch.__version__],
         ["CUDA Available", str(torch.cuda.is_available())],
     ]
+    if torch.cuda.is_available():
+        meta.append(["GPU", torch.cuda.get_device_name(0)])
     t_meta = Table(meta, colWidths=[1.5*inch, 4.5*inch])
     t_meta.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke)]))
     story.append(t_meta)
@@ -188,15 +207,54 @@ def generate_report(work_dir, output_pdf, title="Reinforcement Learning - Experi
     
     # Plot
     if os.path.exists(plot_path):
-        story.append(Paragraph("Learning Curves", styles['Heading2']))
+        story.append(Paragraph("Average Return vs Time Step", styles['Heading2']))
         story.append(Image(plot_path, width=6*inch, height=3.5*inch))
         story.append(Spacer(1, 0.3 * inch))
 
-    # Summary Table
-    story.append(Paragraph("Performance Summary", styles['Heading2']))
-    t_sum = Table(summary_data, colWidths=[1.5*inch, 1*inch, 1.5*inch, 1.5*inch])
-    t_sum.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor("#D1E8E2")), ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('ALIGN', (0,0), (-1,-1), 'CENTER')]))
-    story.append(t_sum)
+    # Per-Algorithm Run Statistics Table
+    for algo in sorted(algo_run_stats.keys()):
+        run_stats = algo_run_stats[algo]
+        algo_title = f"{algo}_{device_str}:{algo.upper()}"
+        story.append(Paragraph(f"title {algo_title}", styles['Heading2']))
+        story.append(Spacer(1, 0.1 * inch))
+
+        # Build the per-run table
+        table_data = [["Run", "Mean \u00b1 Std"]]
+        all_means = []
+        all_stds = []
+        run_dir_names = []
+
+        for i, stat in enumerate(run_stats):
+            table_data.append([
+                f"run #{i}",
+                f"{stat['mean']:.4f} \u00b1 {stat['std']:.4f}"
+            ])
+            all_means.append(stat['mean'])
+            all_stds.append(stat['std'])
+            run_dir_names.append(stat['run_name'])
+
+        # Overall mean row
+        overall_mean = float(np.mean(all_means))
+        overall_std = float(np.mean(all_stds))
+        table_data.append(["mean", f"{overall_mean:.4f} \u00b1 {overall_std:.4f}"])
+
+        t_runs = Table(table_data, colWidths=[1.5*inch, 3*inch])
+        t_runs.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D1E8E2")),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#E8F4FD")),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        story.append(t_runs)
+        story.append(Spacer(1, 0.15 * inch))
+
+        # Runs involved listing
+        runs_involved_str = f"runs_involved={run_dir_names}"
+        timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        story.append(Paragraph(runs_involved_str, styles['Normal']))
+        story.append(Paragraph(timestamp_str, styles['Normal']))
+        story.append(Spacer(1, 0.3 * inch))
     
     doc.build(story)
 
