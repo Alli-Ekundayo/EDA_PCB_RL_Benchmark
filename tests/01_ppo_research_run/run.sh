@@ -12,14 +12,16 @@ mkdir -p $OUTPUT_DIR
 
 echo "=== Starting Research Run: $EXPERIMENT_NAME ==="
 
+# 1.5 Clean stale root-level logs so the report always reads fresh per-seed logs
+rm -f "$OUTPUT_DIR/training.log"
+
 # 2. Training Phase (Parallel with Auto-Seeds)
 echo "--- Phase 1: Training (Parallel) ---"
 python3 scripts/scheduler.py \
     --config configs/base.yaml \
     --algos ppo \
     --auto_seeds \
-    --num_seeds 3 \
-    --total_timesteps 10000 \
+    --num_seeds 4 \
     --run_dir "$OUTPUT_DIR" \
     --max_workers 3
 
@@ -88,7 +90,7 @@ python3 scripts/report_generator.py \
 python3 scripts/evaluate_model.py \
     --work_dir "$OUTPUT_DIR" \
     --board_file "data/boards/rl_pcb/base/evaluation.pcb" \
-    --config "configs/base.yaml" \
+    --config "configs/test_run.yaml" \
     --out_dir "$OUTPUT_DIR"
 
 echo "=== Research Run Completed! ==="

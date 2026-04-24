@@ -179,11 +179,24 @@ def main():
     if not checkpoint_path:
         print(f"Error: No model checkpoints found in {args.work_dir}")
         return
-        
-    print(f"Loaded best checkpoint: {checkpoint_path}")
+
+    print(f"Loading best checkpoint to sync config: {checkpoint_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    rotations = tuple(90 * i for i in range(config.component_rotations))
     
+    # 1. Load model first to get the correct config/architecture
+    # We use dummy dims for now, they will be updated by load_model if needed
+    model = load_model(
+        checkpoint_path=checkpoint_path,
+        config=config,
+        obs_channels=3, # Placeholder, will be adjusted
+        node_feat_dim=1, # Placeholder
+        edge_feat_dim=1, # Placeholder
+        action_dim=1,    # Placeholder
+        device=device
+    )
+
+    # 2. Now initialize environment with the (potentially updated) config
+    rotations = tuple(90 * i for i in range(config.component_rotations))
     print(f"Initializing environment with {args.board_file}...")
     try:
         env = PCBEnv(board_path=args.board_file, width=config.board_width, height=config.board_height, component_rotations=rotations)
@@ -194,6 +207,12 @@ def main():
         return
     
     action_dim = env.action_space.n
+    # Re-initialize or check model if architecture-dependent on env
+    # (The GAT/Spatial encoders are usually fine as long as dims match)
+    
+    # 3. Final model check/reload with correct environment dimensions if necessary
+    # (Actually load_model already updated the config, but we might need to re-init 
+    # if the obs_channels or action_dim changed)
     model = load_model(
         checkpoint_path=checkpoint_path, 
         config=config, 

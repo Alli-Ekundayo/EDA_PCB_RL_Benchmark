@@ -1,0 +1,15 @@
+train/entropy=7.8132 train/global_step=128.0000 train/loss=-0.2005 train/mean_reward=-0.4499 train/policy_loss=-0.0694 train/value_loss=0.0503
+train/entropy=7.8029 train/global_step=256.0000 train/loss=-0.2286 train/mean_reward=-0.3977 train/policy_loss=-0.0761 train/value_loss=0.0071
+train/entropy=7.7717 train/global_step=384.0000 train/loss=-0.2232 train/mean_reward=-0.4320 train/policy_loss=-0.0704 train/value_loss=0.0052
+train/entropy=7.7543 train/global_step=512.0000 train/loss=-0.2263 train/mean_reward=-0.4197 train/policy_loss=-0.0734 train/value_loss=0.0043
+train/entropy=7.7110 train/global_step=640.0000 train/loss=-0.2203 train/mean_reward=-0.4052 train/policy_loss=-0.0682 train/value_loss=0.0043
+train/entropy=7.7300 train/global_step=768.0000 train/loss=-0.2189 train/mean_reward=-0.4243 train/policy_loss=-0.0670 train/value_loss=0.0055
+train/entropy=7.6438 train/global_step=896.0000 train/loss=-0.2220 train/mean_reward=-0.4148 train/policy_loss=-0.0709 train/value_loss=0.0035
+train/entropy=7.6857 train/global_step=1024.0000 train/loss=-0.2212 train/mean_reward=-0.3936 train/policy_loss=-0.0702 train/value_loss=0.0053
+train/entropy=7.6266 train/global_step=1152.0000 train/loss=-0.2233 train/mean_reward=-0.4175 train/policy_loss=-0.0748 train/value_loss=0.0079
+train/entropy=7.5825 train/global_step=1280.0000 train/loss=-0.2281 train/mean_reward=-0.3820 train/policy_loss=-0.0789 train/value_loss=0.0050
+train/entropy=7.5645 train/global_step=1408.0000 train/loss=-0.2272 train/mean_reward=-0.4085 train/policy_loss=-0.0794 train/value_loss=0.0070
+train/entropy=7.4800 train/global_step=1536.0000 train/loss=-0.2336 train/mean_reward=-0.4044 train/policy_loss=-0.0854 train/value_loss=0.0028
+train/entropy=7.4801 train/global_step=1664.0000 train/loss=-0.2368 train/mean_reward=-0.3811 train/policy_loss=-0.0886 train/value_loss=0.0028
+train/entropy=7.3893 train/global_step=1792.0000 train/loss=-0.2344 train/mean_reward=-0.3810 train/policy_loss=-0.0874 train/value_loss=0.0016
+train/entropy=7.3789 train/global_step=1920.0000 train/loss=-0.2359 train/mean_reward=-0.3974 train/policy_loss=-0.0902 train/value_loss=0.0037

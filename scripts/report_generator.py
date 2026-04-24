@@ -164,7 +164,7 @@ def generate_report(work_dir, output_pdf, title=None):
         
         if len(all_steps) > 1:
             std_r = np.std(interp_rewards, axis=0)
-            plt.plot(all_steps, mean_r, color=color, label=f"{algo.upper()} (Mean)", linewidth=2.5)
+            plt.plot(all_steps, mean_r, color=color, label=f"{algo.upper()} (Mean)", linewidth=2.5, marker='o', markersize=4)
             plt.fill_between(all_steps, mean_r - std_r, mean_r + std_r, color=color, alpha=0.2)
         else:
             plt.scatter(all_steps, mean_r, color=color, label=f"{algo.upper()} (Point)", s=100, edgecolors='black', zorder=5)

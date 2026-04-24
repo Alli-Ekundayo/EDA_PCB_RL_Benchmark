@@ -23,7 +23,20 @@ def _graph_to_data(g) -> Data:
 
 def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_feat_dim: int, edge_feat_dim: int, action_dim: int, device: torch.device):
     """Load a trained model from a checkpoint, supporting PPO, TD3, and SAC."""
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Use the config from the checkpoint if available to ensure architecture matches
+    if "config" in checkpoint:
+        cp_config = checkpoint["config"]
+        # If it's a dict (as saved by asdict), we can use it to update or replace
+        if isinstance(cp_config, dict):
+            # Update only architecture-critical parameters
+            for key in ["gat_embed_dim", "spatial_embed_dim", "fused_dim", "gat_heads", "pi_hidden_sizes", "qf_hidden_sizes", "algo"]:
+                if key in cp_config:
+                    setattr(config, key, cp_config[key])
+        elif isinstance(cp_config, Config):
+            config = cp_config
+            
     algo = config.algo.lower()
     
     if algo == "ppo":
@@ -101,7 +114,7 @@ def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[st
         action_mask = info["action_mask"]
 
         if model is None:
-            model = _load_model(
+            model = load_model(
                 checkpoint_path=checkpoint_path,
                 config=config,
                 obs_channels=obs.shape[0],

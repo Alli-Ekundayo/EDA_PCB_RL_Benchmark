@@ -10,6 +10,7 @@ import os
 import torch
 from torch_geometric.data import Data, Batch
 
+from collections import deque
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -79,8 +80,14 @@ def train_ppo(config: Config, device):
     n_updates = max(1, config.total_timesteps // (config.n_steps * config.n_envs))
     global_step = 0
 
+    # Per-env episode return accumulators
+    ep_returns = np.zeros(config.n_envs, dtype=np.float32)
+    recent_returns = deque(maxlen=20)  # Rolling window for smoother logging
+
     for update in range(1, n_updates + 1):
         roll_obs, roll_masks, roll_actions, roll_logp, roll_rewards, roll_dones, roll_values, roll_graphs = [], [], [], [], [], [], [], []
+        completed_ep_returns = []  # episodic returns that finished during this rollout
+
         for _ in range(config.n_steps):
             spatial = torch.as_tensor(obs, dtype=torch.float32, device=device)
             action_mask_t = torch.as_tensor(np.stack(_extract_info_values(info, "action_mask", config.n_envs, np.ones(env.single_action_space.n, dtype=bool))), dtype=torch.bool, device=device)
@@ -90,6 +97,13 @@ def train_ppo(config: Config, device):
             actions, logps, values = actions_t.cpu().numpy(), logp_t.cpu().numpy(), values_t.cpu().numpy()
             next_obs, rewards, terminated, truncated, next_info = env.step(actions)
             done = np.logical_or(terminated, truncated)
+
+            # Accumulate per-env episode returns
+            ep_returns += rewards
+            for i, d in enumerate(done):
+                if d:
+                    completed_ep_returns.append(float(ep_returns[i]))
+                    ep_returns[i] = 0.0
             
             roll_obs.append(obs.copy()); roll_masks.append(action_mask_t.cpu().numpy()); roll_actions.append(actions.copy())
             roll_logp.append(logps.copy()); roll_rewards.append(rewards.astype(np.float32)); roll_dones.append(done.astype(bool))
@@ -114,7 +128,13 @@ def train_ppo(config: Config, device):
             advantages=torch.as_tensor(((adv - adv.mean()) / (adv.std() + 1e-8)).reshape(-1), device=device),
         ), roll_graphs, config.n_epochs, config.batch_size)
         
-        metrics.update({"train/global_step": float(global_step), "train/mean_reward": float(np.mean(roll_rewards))})
+        # Log mean episodic return from rolling window
+        if completed_ep_returns:
+            recent_returns.extend(completed_ep_returns)
+        
+        current_mean_ep_return = float(np.mean(recent_returns)) if recent_returns else float(np.mean(roll_rewards))
+            
+        metrics.update({"train/global_step": float(global_step), "train/mean_reward": current_mean_ep_return})
         log_dict(metrics)
         if update % 2 == 0:
             torch.save({"model": model.state_dict(), "config": asdict(config)}, checkpoint_dir / f"ppo_step_{global_step}.pt")
@@ -164,7 +184,7 @@ def train_off_policy(config: Config, device):
     replay_buffer = GraphReplayBuffer(config.replay_buffer_size, device=device)
     global_step = 0
     episode_return = 0.0          # accumulated return for the current episode
-    last_logged_return = None     # most recent completed-episode return
+    recent_returns = deque(maxlen=20)
 
     while global_step < config.total_timesteps:
         # 1. Step
@@ -194,21 +214,21 @@ def train_off_policy(config: Config, device):
         graph_data = _graph_to_data(next_info['graph'])
 
         if done:
-            last_logged_return = episode_return
+            recent_returns.append(episode_return)
             # Log episodic return so the report captures a meaningful learning signal
             entry = {"train/global_step": float(global_step),
-                     "train/mean_reward": episode_return}
+                     "train/mean_reward": np.mean(recent_returns)}
             entry.update(train_metrics)
             log_dict(entry)
             episode_return = 0.0
             obs, info = env.reset()
             graph_data = _graph_to_data(info['graph'])
         elif global_step % 100 == 0:
-            # Keep a heartbeat log even between episodes; use last known episode return
+            # Keep a heartbeat log even between episodes; use rolling mean return
             # if available so the parser can still pick up a data point
             heartbeat = {"train/global_step": float(global_step)}
-            if last_logged_return is not None:
-                heartbeat["train/mean_reward"] = last_logged_return
+            if recent_returns:
+                heartbeat["train/mean_reward"] = float(np.mean(recent_returns))
                 heartbeat.update(train_metrics)
             log_dict(heartbeat)
 
