@@ -71,29 +71,39 @@ def _detect_device():
         return f"cuda_{torch.cuda.current_device()}"
     return "cpu"
 
+def _algo_from_path(log_file: str) -> str:
+    """Infer algorithm from full log path (covers seed-subdir names like ppo_seed_42)."""
+    lower = log_file.lower().replace(os.sep, '/')
+    if 'td3' in lower: return 'td3'
+    if 'sac' in lower: return 'sac'
+    return 'ppo'
+
 def generate_report(work_dir, output_pdf, title=None):
     # 1. Sweep directory for log files
-    log_files = glob.glob(os.path.join(work_dir, "**", "training.log"), recursive=True)
-    if not log_files:
-        # Fallback to root log if seed dirs don't exist
-        log_files = glob.glob(os.path.join(work_dir, "training.log"))
-        
-    if not log_files:
+    all_logs = glob.glob(os.path.join(work_dir, "**", "training.log"), recursive=True)
+    if not all_logs:
         print(f"No training.log files found in {work_dir}")
         return
+
+    # If per-seed subdirectory logs exist, drop the root-level log to avoid
+    # double-counting (the root log is a leftover from earlier manual runs).
+    subdir_logs = [f for f in all_logs if os.path.dirname(os.path.abspath(f)) != os.path.abspath(work_dir)]
+    log_files = sorted(subdir_logs if subdir_logs else all_logs)
 
     # Collect per-algorithm, per-run data
     # Structure: { algo: [ (run_dir_name, DataFrame), ... ] }
     algo_runs = {}
 
-    for log_file in sorted(log_files):
+    for log_file in log_files:
         parent_dir = os.path.basename(os.path.dirname(log_file))
-        # Logic to extract algo from path or filename
-        algo = "ppo" # Default
-        if "td3" in log_file.lower() or "td3" in parent_dir.lower(): algo = "td3"
-        elif "sac" in log_file.lower() or "sac" in parent_dir.lower(): algo = "sac"
-        
+        algo = _algo_from_path(log_file)
+
         df = parse_log(log_file)
+        if df.empty:
+            continue
+        # Deduplicate by global_step: keep last logged value per step
+        # (heartbeat entries may repeat the previous episodic return at new steps)
+        df = df.drop_duplicates(subset=['global_step'], keep='last').reset_index(drop=True)
         if not df.empty:
             if algo not in algo_runs: algo_runs[algo] = []
             algo_runs[algo].append((parent_dir if parent_dir else "root", df))

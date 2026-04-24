@@ -163,37 +163,55 @@ def train_off_policy(config: Config, device):
 
     replay_buffer = GraphReplayBuffer(config.replay_buffer_size, device=device)
     global_step = 0
+    episode_return = 0.0          # accumulated return for the current episode
+    last_logged_return = None     # most recent completed-episode return
+
     while global_step < config.total_timesteps:
         # 1. Step
         spatial_t = torch.as_tensor(obs[None, ...], dtype=torch.float32, device=device)
+        # Move graph data to the target device so GAT encoder weights and inputs match
+        graph_data_dev = graph_data.to(device)
         if config.algo == "td3":
-            action = agent.select_action(spatial_t, graph_data, expl_noise=config.expl_noise)
+            action = agent.select_action(spatial_t, graph_data_dev, expl_noise=config.expl_noise)
         else:
-            action = agent.select_action(spatial_t, graph_data)
-        
+            action = agent.select_action(spatial_t, graph_data_dev)
+
         next_obs, reward, terminated, truncated, next_info = env.step(action)
         done = terminated or truncated
         next_graph_data = _graph_to_data(next_info['graph'])
-        
-        # 2. Store
+        episode_return += float(reward)
+
+        # 2. Store (keep CPU copies in replay buffer to save GPU memory)
         replay_buffer.push(obs, graph_data, action, next_obs, next_graph_data, reward, done)
-        
-        # 3. Update (Every 10 steps for CPU efficiency)
+
+        # 3. Update (every 10 steps once the buffer has enough samples)
+        train_metrics = {}
         if len(replay_buffer) > config.batch_size and global_step % 10 == 0:
-            # Perform 5 updates to maintain sample efficiency
             for _ in range(5):
-                metrics = agent.update(replay_buffer, config.batch_size)
-            metrics.update({"train/global_step": float(global_step), "train/mean_reward": float(reward)})
-            log_dict(metrics)
-        elif global_step % 100 == 0:
-            log_dict({"train/global_step": float(global_step), "train/status": 0.0})
-            
+                train_metrics = agent.update(replay_buffer, config.batch_size)
+
         obs = next_obs
-        # IMPORTANT: Update graph data every step
         graph_data = _graph_to_data(next_info['graph'])
-        if done: 
+
+        if done:
+            last_logged_return = episode_return
+            # Log episodic return so the report captures a meaningful learning signal
+            entry = {"train/global_step": float(global_step),
+                     "train/mean_reward": episode_return}
+            entry.update(train_metrics)
+            log_dict(entry)
+            episode_return = 0.0
             obs, info = env.reset()
             graph_data = _graph_to_data(info['graph'])
+        elif global_step % 100 == 0:
+            # Keep a heartbeat log even between episodes; use last known episode return
+            # if available so the parser can still pick up a data point
+            heartbeat = {"train/global_step": float(global_step)}
+            if last_logged_return is not None:
+                heartbeat["train/mean_reward"] = last_logged_return
+                heartbeat.update(train_metrics)
+            log_dict(heartbeat)
+
         global_step += 1
         
     # Final Save
