@@ -21,21 +21,35 @@ def _graph_to_data(g) -> Data:
     )
 
 
+def sync_config_from_checkpoint(checkpoint_path: str, config: Config, device: torch.device):
+    """Update a Config object with architecture-relevant settings from a checkpoint."""
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    if "config" in checkpoint:
+        cp_config = checkpoint["config"]
+        # Sync all parameters that affect the model architecture or environment observations
+        sync_keys = [
+            "gat_embed_dim", "spatial_embed_dim", "fused_dim", "gat_heads", 
+            "pi_hidden_sizes", "qf_hidden_sizes", "algo",
+            "use_ratsnest", "use_criticality", "component_rotations",
+            "board_width", "board_height"
+        ]
+        if isinstance(cp_config, dict):
+            for key in sync_keys:
+                if key in cp_config:
+                    setattr(config, key, cp_config[key])
+        elif isinstance(cp_config, Config):
+            for key in sync_keys:
+                if hasattr(cp_config, key):
+                    setattr(config, key, getattr(cp_config, key))
+    return config
+
+
 def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_feat_dim: int, edge_feat_dim: int, action_dim: int, device: torch.device):
     """Load a trained model from a checkpoint, supporting PPO, TD3, and SAC."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     
-    # Use the config from the checkpoint if available to ensure architecture matches
-    if "config" in checkpoint:
-        cp_config = checkpoint["config"]
-        # If it's a dict (as saved by asdict), we can use it to update or replace
-        if isinstance(cp_config, dict):
-            # Update only architecture-critical parameters
-            for key in ["gat_embed_dim", "spatial_embed_dim", "fused_dim", "gat_heads", "pi_hidden_sizes", "qf_hidden_sizes", "algo"]:
-                if key in cp_config:
-                    setattr(config, key, cp_config[key])
-        elif isinstance(cp_config, Config):
-            config = cp_config
+    # Sync config again just in case, though it should ideally be done before calling this
+    sync_config_from_checkpoint(checkpoint_path, config, device)
             
     algo = config.algo.lower()
     
@@ -78,6 +92,10 @@ def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_fea
 
 def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[str]] = None) -> Dict[str, float]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Sync config from checkpoint to ensure environment matches training
+    sync_config_from_checkpoint(checkpoint_path, config, device)
+    
     rotations = tuple(90 * i for i in range(config.component_rotations))
     
     if board_files is None:

@@ -27,7 +27,7 @@ def make_continuous_vec_env(
     reward_weights: Optional[RewardWeights] = None,
 ):
     from gymnasium import Wrapper, spaces
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    from gymnasium.vector import AsyncVectorEnv
     from environment.pcb_env import PCBEnv
 
     class ActionWrapperContinuous(Wrapper):
@@ -65,7 +65,7 @@ def make_continuous_vec_env(
     for i in range(n_envs):
         p = str(board_files[i % len(board_files)])
         env_fns.append(make_env(board_path=p, pcb_idx=i % 6))
-    return SubprocVecEnv(env_fns)
+    return AsyncVectorEnv(env_fns)
 
 
 def train_td3_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, float]:

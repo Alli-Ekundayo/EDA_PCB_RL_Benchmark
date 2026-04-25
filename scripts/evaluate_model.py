@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from training.config import Config
 from environment.pcb_env import PCBEnv
-from evaluation.eval import load_model, _graph_to_data
+from evaluation.eval import load_model, _graph_to_data, sync_config_from_checkpoint
 from torch_geometric.data import Batch
 from routing.router import UnifiedPCBRouter
 from environment.reward import pattern_routability_proxy
@@ -180,22 +180,14 @@ def main():
         print(f"Error: No model checkpoints found in {args.work_dir}")
         return
 
-    print(f"Loading best checkpoint to sync config: {checkpoint_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # 1. Load model first to get the correct config/architecture
-    # We use dummy dims for now, they will be updated by load_model if needed
-    model = load_model(
-        checkpoint_path=checkpoint_path,
-        config=config,
-        obs_channels=3, # Placeholder, will be adjusted
-        node_feat_dim=1, # Placeholder
-        edge_feat_dim=1, # Placeholder
-        action_dim=1,    # Placeholder
-        device=device
-    )
 
-    # 2. Now initialize environment with the (potentially updated) config
+    # 1. Sync configuration from the checkpoint first
+    # This is critical because flags like use_ratsnest affect environment observation shape
+    print(f"Syncing configuration from: {checkpoint_path}")
+    sync_config_from_checkpoint(checkpoint_path, config, device)
+
+    # 2. Now initialize environment with the (synced) config
     rotations = tuple(90 * i for i in range(config.component_rotations))
     print(f"Initializing environment with {args.board_file}...")
     try:
@@ -207,12 +199,9 @@ def main():
         return
     
     action_dim = env.action_space.n
-    # Re-initialize or check model if architecture-dependent on env
-    # (The GAT/Spatial encoders are usually fine as long as dims match)
     
-    # 3. Final model check/reload with correct environment dimensions if necessary
-    # (Actually load_model already updated the config, but we might need to re-init 
-    # if the obs_channels or action_dim changed)
+    # 3. Load model with correct environment dimensions
+    print("Loading model weights...")
     model = load_model(
         checkpoint_path=checkpoint_path, 
         config=config, 
