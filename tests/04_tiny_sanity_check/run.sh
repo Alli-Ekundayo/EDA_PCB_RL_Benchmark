@@ -19,7 +19,7 @@ python3 training/train.py \
 
 echo "=== Visualizing Tiny Placement ==="
 # Find final checkpoint
-LATEST_CHECKPOINT=$(find $OUTPUT_DIR -name "*_final.pt" | head -1)
+LATEST_CHECKPOINT=$(find $OUTPUT_DIR -name "*final*.pt" | head -1)
 if [ -n "$LATEST_CHECKPOINT" ]; then
     python3 scripts/visualize_placement.py \
         --checkpoint "$LATEST_CHECKPOINT" \

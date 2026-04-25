@@ -35,7 +35,7 @@ python3 scripts/report_generator.py \
     --out "$OUTPUT_DIR/experiment_report.pdf"
 
 # B. Physical Evaluation (using latest final checkpoint)
-LATEST_CHECKPOINT=$(find $OUTPUT_DIR -name "*_final.pt" | head -1)
+LATEST_CHECKPOINT=$(find $OUTPUT_DIR -name "*final*.pt" | head -1)
 if [ -n "$LATEST_CHECKPOINT" ]; then
     echo "Running physical evaluation on: $LATEST_CHECKPOINT"
     python3 scripts/evaluate_model.py \
