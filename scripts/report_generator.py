@@ -204,23 +204,31 @@ def generate_report(work_dir, output_pdf, title=None):
     diag_plot_path = "tmp_plots/diagnostic_plots.png"
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     diag_metrics = [
-        ('critic_loss', 'Critic/Value Loss', 'Loss'),
-        ('mean_q', 'Mean Q-Value', 'Q-Value'),
-        ('entropy', 'Entropy', 'Entropy')
+        (['critic_loss', 'value_loss'], 'Critic/Value Loss', 'Loss'),
+        (['mean_q', 'q_value'], 'Mean Q-Value', 'Q-Value'),
+        (['entropy', 'policy_entropy'], 'Entropy', 'Entropy')
     ]
     
-    for i, (key, title_str, y_label) in enumerate(diag_metrics):
+    for i, (keys, title_str, y_label) in enumerate(diag_metrics):
         ax = axes[i]
         for algo, runs in algo_runs.items():
             color = colors_map.get(algo.lower(), '#9b59b6')
-            dfs = [r[1] for r in runs if key in r[1].columns]
-            if not dfs: continue
             
+            # Find which key exists in this algo's runs
+            active_key = None
+            for k in keys:
+                if any(k in r[1].columns for r in runs):
+                    active_key = k
+                    break
+            
+            if not active_key: continue
+            
+            dfs = [r[1] for r in runs if active_key in r[1].columns]
             all_steps = pd.concat([df['global_step'] for df in dfs]).sort_values().unique()
             interp_vals = []
             for _, df in runs:
-                if key not in df.columns: continue
-                iv = np.interp(all_steps, df['global_step'], df[key])
+                if active_key not in df.columns: continue
+                iv = np.interp(all_steps, df['global_step'], df[active_key])
                 interp_vals.append(iv)
             
             if interp_vals:
