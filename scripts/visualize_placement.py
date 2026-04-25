@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from environment.pcb_env import PCBEnv
 from training.config import Config
-from evaluation.eval import load_model, _graph_to_data
+from evaluation.eval import load_model, _graph_to_data, sync_config_from_checkpoint
 from torch_geometric.data import Batch
 
 def main():
@@ -28,8 +28,17 @@ def main():
     config = Config()
     device = "cpu"
     
-    # 1. Initialize environment
-    env = PCBEnv(board_path=args.board, width=args.width, height=args.height)
+    # 0. Sync config from checkpoint to get correct dimensions/rotations
+    sync_config_from_checkpoint(args.checkpoint, config, device)
+    
+    # 1. Initialize environment (using synced config)
+    rotations = tuple(90 * i for i in range(config.component_rotations))
+    env = PCBEnv(
+        board_path=args.board, 
+        width=config.board_width, 
+        height=config.board_height,
+        component_rotations=rotations
+    )
     obs, info = env.reset()
     graph = _graph_to_data(info["graph"])
     
