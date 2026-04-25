@@ -30,6 +30,7 @@ policy_freq: 2  # Delayed Policy Updates to reduce overestimation bias
 
 # Placement
 component_rotations: 4
-hpwl_weight: 1.0
+hpwl_dense_weight: 1.0
+hpwl_terminal_weight: 0.5
 drc_penalty: 10.0
 routability_weight: 0.1

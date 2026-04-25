@@ -32,7 +32,7 @@ def evaluate_ppo_agent(
     
     rotations = tuple(90 * i for i in range(config.component_rotations))
     reward_weights = RewardWeights(
-        hpwl_weight=config.hpwl_weight,
+        hpwl_dense_weight=config.hpwl_dense_weight, hpwl_terminal_weight=config.hpwl_terminal_weight,
         drc_penalty=config.drc_penalty,
         routability_weight=config.routability_weight,
     )

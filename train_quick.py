@@ -32,7 +32,8 @@ def quick_train():
     device = "cpu"
     rotations = tuple(90 * i for i in range(cfg.component_rotations))
     reward_weights = RewardWeights(
-        hpwl_weight=cfg.hpwl_weight,
+        hpwl_dense_weight=cfg.hpwl_dense_weight,
+        hpwl_terminal_weight=cfg.hpwl_terminal_weight,
         drc_penalty=cfg.drc_penalty,
         routability_weight=cfg.routability_weight,
     )

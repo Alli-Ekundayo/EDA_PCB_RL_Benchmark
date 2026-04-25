@@ -74,7 +74,7 @@ def train_td3_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
     
     rotations = tuple(90 * i for i in range(config.component_rotations))
     reward_weights = RewardWeights(
-        hpwl_weight=config.hpwl_weight,
+        hpwl_dense_weight=config.hpwl_dense_weight, hpwl_terminal_weight=config.hpwl_terminal_weight,
         drc_penalty=config.drc_penalty,
         routability_weight=config.routability_weight,
     )
@@ -121,7 +121,7 @@ def train_sac_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
     
     rotations = tuple(90 * i for i in range(config.component_rotations))
     reward_weights = RewardWeights(
-        hpwl_weight=config.hpwl_weight,
+        hpwl_dense_weight=config.hpwl_dense_weight, hpwl_terminal_weight=config.hpwl_terminal_weight,
         drc_penalty=config.drc_penalty,
         routability_weight=config.routability_weight,
     )

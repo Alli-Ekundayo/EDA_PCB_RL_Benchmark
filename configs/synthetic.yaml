@@ -6,6 +6,7 @@ batch_size: 256
 component_rotations: 4
 board_dir: data/boards/synthetic
 total_timesteps: 500000
-hpwl_weight: 1.0
+hpwl_dense_weight: 1.0
+hpwl_terminal_weight: 0.5
 drc_penalty: 10.0
 routability_weight: 0.1

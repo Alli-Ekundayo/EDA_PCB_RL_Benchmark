@@ -54,7 +54,8 @@ def _compute_gae(rewards, values, dones, gamma: float, gae_lambda: float):
 def train_ppo(config: Config, device):
     rotations = tuple(90 * i for i in range(config.component_rotations))
     reward_weights = RewardWeights(
-        hpwl_weight=config.hpwl_weight,
+        hpwl_dense_weight=config.hpwl_dense_weight,
+        hpwl_terminal_weight=config.hpwl_terminal_weight,
         drc_penalty=config.drc_penalty,
         routability_weight=config.routability_weight,
     )
@@ -155,8 +156,17 @@ def train_ppo(config: Config, device):
 
 def train_off_policy(config: Config, device):
     from environment.pcb_env import PCBEnv
-    base_env = PCBEnv(board_dir=config.board_dir, width=config.board_width, height=config.board_height, 
-                      component_rotations=tuple(90*i for i in range(config.component_rotations)))
+    reward_weights = RewardWeights(
+        hpwl_dense_weight=config.hpwl_dense_weight,
+        hpwl_terminal_weight=config.hpwl_terminal_weight,
+        drc_penalty=config.drc_penalty,
+        routability_weight=config.routability_weight,
+    )
+    base_env = PCBEnv(
+        board_dir=config.board_dir, width=config.board_width, height=config.board_height, 
+        component_rotations=tuple(90*i for i in range(config.component_rotations)),
+        reward_weights=reward_weights
+    )
     env = ContinuousToDiscrete(base_env)
     obs, info = env.reset(seed=config.seed)
     graph_data = _graph_to_data(info['graph'])

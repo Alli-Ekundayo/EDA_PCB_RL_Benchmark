@@ -80,7 +80,7 @@ def reward_components(
     overlap_term = -(compute_overlap_count(board_after) - compute_overlap_count(board_before))
     routability_term = pattern_routability_proxy(board_after) - pattern_routability_proxy(board_before)
     total = (
-        weights.hpwl_weight * hpwl_term
+        weights.hpwl_dense_weight * hpwl_term
         + weights.drc_penalty * drc_term
         + 0.25 * weights.drc_penalty * overlap_term
         + weights.routability_weight * routability_term

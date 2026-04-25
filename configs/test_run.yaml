@@ -33,7 +33,8 @@ board_dir: data/boards/rl_pcb/base/training.pcb
 checkpoint_dir: runs/checkpoints
 seed: 42
 
-hpwl_weight: 1.0
+hpwl_dense_weight: 1.0
+hpwl_terminal_weight: 0.5
 drc_penalty: 10.0
 routability_weight: 0.1
 
