@@ -122,7 +122,10 @@ class TD3Agent:
         critic2_loss.backward()
         self.critic2_opt.step()
         
-        metrics = {"train/critic_loss": (critic1_loss + critic2_loss).item() / 2.0}
+        metrics = {
+            "train/critic_loss": (critic1_loss + critic2_loss).item() / 2.0,
+            "train/mean_q": current_Q1.mean().item()
+        }
         
         # 3. Delayed Actor Update
         if self.it % self.policy_freq == 0:

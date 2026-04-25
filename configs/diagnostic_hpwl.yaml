@@ -1,0 +1,27 @@
+# Diagnostic Configuration: HPWL Only
+# Goal: Verify if the GAT+Spatial architecture can learn pure placement optimization
+board_width: 16
+board_height: 16
+resolution_mm: 1.0
+num_comp_classes: 4
+use_ratsnest: true
+use_criticality: true
+
+# Algorithm
+algo: ppo
+total_timesteps: 50000
+n_steps: 128
+n_envs: 4
+batch_size: 64
+
+# Reward: ONLY HPWL (Dense + Terminal)
+# Zeroing out DRC and Overlap to see if it can learn purely from wire length
+hpwl_dense_weight: 5.0
+hpwl_terminal_weight: 1.0
+drc_penalty: 0.0
+routability_weight: 0.0
+
+# Other
+component_rotations: 1 # Simplify to 1 rotation for faster diagnostic
+seed: 42
+board_dir: data/boards/rl_pcb/base/evaluation.pcb

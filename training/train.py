@@ -112,6 +112,14 @@ def train_ppo(config: Config, device):
             obs = next_obs
             graph_objs = _extract_info_values(next_info, "graph", config.n_envs, graph_objs[0])
             graph_list = [_graph_to_data(g) for g in graph_objs]
+            
+            # Track detailed reward components for the first env (as a representative sample)
+            # or mean if available. For simplicity, we'll take the mean across envs if they are in next_info.
+            for r_key in ["reward_hpwl_dense", "reward_hpwl_terminal", "reward_drc", "reward_overlap", "reward_routability"]:
+                vals = _extract_info_values(next_info, r_key, config.n_envs, 0.0)
+                metrics_to_log = metrics_to_log if 'metrics_to_log' in locals() else {}
+                metrics_to_log[f"train/{r_key}"] = float(np.mean(vals))
+            
             info = next_info
             global_step += config.n_envs
 
@@ -135,6 +143,8 @@ def train_ppo(config: Config, device):
         current_mean_ep_return = float(np.mean(recent_returns)) if recent_returns else float(np.mean(roll_rewards))
             
         metrics.update({"train/global_step": float(global_step), "train/mean_reward": current_mean_ep_return})
+        if 'metrics_to_log' in locals():
+            metrics.update(metrics_to_log)
         log_dict(metrics)
         if update % 2 == 0:
             torch.save({"model": model.state_dict(), "config": asdict(config)}, checkpoint_dir / f"ppo_step_{global_step}.pt")
@@ -200,6 +210,11 @@ def train_off_policy(config: Config, device):
         done = terminated or truncated
         next_graph_data = _graph_to_data(next_info['graph'])
         episode_return += float(reward)
+        
+        # Track detailed reward components
+        step_reward_metrics = {
+            f"train/{k}": float(v) for k, v in next_info.items() if k.startswith("reward_")
+        }
 
         # 2. Store (keep CPU copies in replay buffer to save GPU memory)
         replay_buffer.push(obs, graph_data, action, next_obs, next_graph_data, reward, done)
@@ -219,6 +234,7 @@ def train_off_policy(config: Config, device):
             entry = {"train/global_step": float(global_step),
                      "train/mean_reward": np.mean(recent_returns)}
             entry.update(train_metrics)
+            entry.update(step_reward_metrics)
             log_dict(entry)
             episode_return = 0.0
             obs, info = env.reset()

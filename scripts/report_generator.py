@@ -12,6 +12,29 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 import torch
+import yaml
+
+ALGO_SPECIFIC_PARAMS = {
+    'ppo': [
+        'n_steps', 'n_epochs', 'batch_size', 'clip_range', 'lr', 'gamma', 
+        'gae_lambda', 'ent_coef', 'vf_coef', 'max_grad_norm'
+    ],
+    'td3': [
+        'tau', 'batch_size', 'lr', 'gamma', 'replay_buffer_size', 
+        'expl_noise', 'policy_noise', 'noise_clip', 'policy_freq', 
+        'pi_hidden_sizes', 'qf_hidden_sizes'
+    ],
+    'sac': [
+        'tau', 'alpha', 'batch_size', 'lr', 'gamma', 'replay_buffer_size', 
+        'pi_hidden_sizes', 'qf_hidden_sizes'
+    ]
+}
+
+SHARED_PARAMS = [
+    'board_width', 'board_height', 'use_ratsnest', 'use_criticality', 
+    'gat_embed_dim', 'spatial_embed_dim', 'fused_dim', 'gat_heads', 
+    'component_rotations', 'total_timesteps'
+]
 
 def parse_log(log_file):
     data = []
@@ -30,40 +53,39 @@ def parse_log(log_file):
                                     entry[k.replace('train/', '')] = float(v)
                                 except:
                                     continue
-                    if 'global_step' in entry and 'mean_reward' in entry:
+                    if 'global_step' in entry:
                         data.append(entry)
     return pd.DataFrame(data)
 
-def extract_hyperparams(work_dir):
-    """Try to extract hyperparameters from .pt files or config.yaml."""
-    # Priority 1: .pt checkpoints
-    pt_files = glob.glob(os.path.join(work_dir, "**", "*.pt"), recursive=True)
+def extract_hyperparams(run_dir):
+    """Extract hyperparameters from a specific run directory (checkpoint or config)."""
+    # Priority 1: .pt checkpoints in this run's directory
+    pt_files = glob.glob(os.path.join(run_dir, "*.pt"))
     for pt in pt_files:
         try:
-            checkpoint = torch.load(pt, map_location='cpu')
+            checkpoint = torch.load(pt, map_location='cpu', weights_only=False)
             if 'config' in checkpoint:
                 cfg = checkpoint['config']
-                if hasattr(cfg, 'to_dict'): return cfg.to_dict()
-                return cfg
+                return cfg.to_dict() if hasattr(cfg, 'to_dict') else cfg
         except:
             continue
     
-    # Priority 2: config.yaml or base.yaml
-    search_paths = [
-        os.path.join(work_dir, "**", "config.yaml"),
-        os.path.join(work_dir, "config.yaml"),
-        "configs/base.yaml"
-    ]
-    for path in search_paths:
-        files = glob.glob(path, recursive=True)
-        if files:
-            try:
-                import yaml
-                with open(files[0], 'r') as f:
-                    return yaml.safe_load(f)
-            except:
-                continue
+    # Priority 2: config.yaml in this run's directory
+    cfg_path = os.path.join(run_dir, "config.yaml")
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, 'r') as f:
+                return yaml.safe_load(f)
+        except:
+            pass
     return None
+
+def filter_hyperparams(hp, algo):
+    """Filter hyperparameters relevant to the specific algorithm."""
+    if not hp: return {}
+    algo = algo.lower()
+    relevant_keys = SHARED_PARAMS + ALGO_SPECIFIC_PARAMS.get(algo, [])
+    return {k: v for k, v in hp.items() if k in relevant_keys}
 
 def _detect_device():
     """Detect the compute device string for the report title."""
@@ -178,6 +200,47 @@ def generate_report(work_dir, output_pdf, title=None):
     plt.savefig(plot_path, dpi=300)
     plt.close()
 
+    # 2.2 Diagnostic Plots (Loss, Q-Value, Entropy)
+    diag_plot_path = "tmp_plots/diagnostic_plots.png"
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    diag_metrics = [
+        ('critic_loss', 'Critic/Value Loss', 'Loss'),
+        ('mean_q', 'Mean Q-Value', 'Q-Value'),
+        ('entropy', 'Entropy', 'Entropy')
+    ]
+    
+    for i, (key, title_str, y_label) in enumerate(diag_metrics):
+        ax = axes[i]
+        for algo, runs in algo_runs.items():
+            color = colors_map.get(algo.lower(), '#9b59b6')
+            dfs = [r[1] for r in runs if key in r[1].columns]
+            if not dfs: continue
+            
+            all_steps = pd.concat([df['global_step'] for df in dfs]).sort_values().unique()
+            interp_vals = []
+            for _, df in runs:
+                if key not in df.columns: continue
+                iv = np.interp(all_steps, df['global_step'], df[key])
+                interp_vals.append(iv)
+            
+            if interp_vals:
+                interp_vals = np.array(interp_vals)
+                mean_v = np.mean(interp_vals, axis=0)
+                ax.plot(all_steps, mean_v, color=color, label=algo.upper())
+                if len(interp_vals) > 1:
+                    std_v = np.std(interp_vals, axis=0)
+                    ax.fill_between(all_steps, mean_v - std_v, mean_v + std_v, color=color, alpha=0.1)
+        
+        ax.set_title(title_str, fontweight='bold')
+        ax.set_xlabel('Time Step')
+        ax.set_ylabel(y_label)
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+    plt.tight_layout()
+    plt.savefig(diag_plot_path, dpi=300)
+    plt.close()
+
     # 3. Build PDF
     doc = SimpleDocTemplate(output_pdf, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -205,20 +268,17 @@ def generate_report(work_dir, output_pdf, title=None):
     story.append(t_meta)
     story.append(Spacer(1, 0.3 * inch))
 
-    # Hyperparameters
-    hp = extract_hyperparams(work_dir)
-    if hp:
-        story.append(Paragraph("Hyperparameters", styles['Heading2']))
-        hp_list = [[str(k), str(v)] for k, v in list(hp.items())[:20]] # Limit to 20 for space
-        t_hp = Table([["Parameter", "Value"]] + hp_list, colWidths=[2.5*inch, 3.5*inch])
-        t_hp.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor("#D1E8E2")), ('GRID', (0,0), (-1,-1), 0.5, colors.grey)]))
-        story.append(t_hp)
-        story.append(Spacer(1, 0.3 * inch))
-    
+    # Hyperparameters (Global/Shared Section - Moved to per-algo section for clarity)
+    # 3. Build Plot
     # Plot
     if os.path.exists(plot_path):
-        story.append(Paragraph("Average Return vs Time Step", styles['Heading2']))
-        story.append(Image(plot_path, width=6*inch, height=3.5*inch))
+        story.append(Paragraph("Learning Performance", styles['Heading2']))
+        story.append(Image(plot_path, width=6.5*inch, height=3.8*inch))
+        story.append(Spacer(1, 0.2 * inch))
+    
+    if os.path.exists(diag_plot_path):
+        story.append(Paragraph("Training Diagnostics", styles['Heading2']))
+        story.append(Image(diag_plot_path, width=7.0*inch, height=2.2*inch))
         story.append(Spacer(1, 0.3 * inch))
 
     # Per-Algorithm Run Statistics Table
@@ -258,6 +318,27 @@ def generate_report(work_dir, output_pdf, title=None):
         ]))
         story.append(t_runs)
         story.append(Spacer(1, 0.15 * inch))
+
+        # Hyperparameters for this algorithm
+        if run_stats:
+            # Try to find the log file for the first run of this algo to get its directory
+            first_run_name = run_stats[0]['run_name']
+            first_run_log = [log for log in log_files if os.path.basename(os.path.dirname(log)) == first_run_name]
+            if first_run_log:
+                run_dir = os.path.dirname(first_run_log[0])
+                hp = extract_hyperparams(run_dir)
+                filtered_hp = filter_hyperparams(hp, algo)
+                if filtered_hp:
+                    story.append(Paragraph(f"{algo.upper()} Configuration", styles['Heading3']))
+                    hp_list = [[str(k), str(v)] for k, v in filtered_hp.items()]
+                    t_hp = Table([["Parameter", "Value"]] + hp_list, colWidths=[2.0*inch, 3.5*inch])
+                    t_hp.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#F0F0F0")),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                        ('FONTSIZE', (0,0), (-1,-1), 8),
+                    ]))
+                    story.append(t_hp)
+                    story.append(Spacer(1, 0.2 * inch))
 
         # Runs involved listing
         runs_involved_str = f"runs_involved={run_dir_names}"

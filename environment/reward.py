@@ -10,9 +10,10 @@ from .board import Board, component_center, occupied_grid
 
 @dataclass
 class RewardWeights:
-    hpwl_weight: float = 1.0
+    hpwl_dense_weight: float = 2.0
+    hpwl_terminal_weight: float = 0.5
     drc_penalty: float = 10.0
-    routability_weight: float = 0.1
+    routability_weight: float = 1.0
 
 
 def _centers(board: Board) -> Dict[str, Tuple[float, float]]:

@@ -1,0 +1,24 @@
+# Tiny Board Sanity Check Configuration
+board_width: 8
+board_height: 8
+resolution_mm: 1.0
+num_comp_classes: 2
+use_ratsnest: true
+use_criticality: false
+
+# Algorithm: PPO (Simple & Stable)
+algo: ppo
+total_timesteps: 10000
+n_steps: 64
+n_envs: 2
+batch_size: 32
+
+# Reward: Simple but complete
+hpwl_dense_weight: 1.0
+hpwl_terminal_weight: 1.0
+drc_penalty: 5.0
+routability_weight: 0.5
+
+component_rotations: 1
+seed: 42
+board_dir: data/boards/rl_pcb/base/evaluation.pcb

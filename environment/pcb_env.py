@@ -157,28 +157,45 @@ class PCBEnv(gym.Env):
             comp.position = (x, y)
             self.current_idx += 1
 
-        # Calculate reward using tracked metrics instead of cloning
+        # Calculate reward components
         new_metrics = self._get_reward_metrics()
-        
         terminated = all(c.placed for c in self.board.components)
         
-        # Apply sparse HPWL reward only at the end of the episode to prevent
-        # punishing the agent for initial placements that establish the net bounding box.
-        if terminated:
-            hpwl_term = -new_metrics["hpwl"]
+        num_placed = len([c for c in self.board.components if c.placed])
+        
+        # 1. HPWL Term (Hybrid Dense/Sparse)
+        # Dense delta after 2+ components are placed to give feedback on every placement
+        if num_placed >= 2:
+            hpwl_dense_term = -(new_metrics["hpwl"] - self._last_metrics["hpwl"])
         else:
-            hpwl_term = 0.0
+            hpwl_dense_term = 0.0
             
+        # Terminal bonus for final layout quality
+        hpwl_terminal_term = -new_metrics["hpwl"] if terminated else 0.0
+            
+        # 2. DRC & Overlap Terms (Dense)
         drc_term = -1.0 if not valid else 0.0
         overlap_term = -(new_metrics["overlap"] - self._last_metrics["overlap"])
+        
+        # 3. Routability Term (Dense)
         routability_term = new_metrics["routability"] - self._last_metrics["routability"]
         
         reward = (
-            self.reward_weights.hpwl_weight * hpwl_term
+            self.reward_weights.hpwl_dense_weight * hpwl_dense_term
+            + self.reward_weights.hpwl_terminal_weight * hpwl_terminal_term
             + self.reward_weights.drc_penalty * drc_term
             + 0.25 * self.reward_weights.drc_penalty * overlap_term
             + self.reward_weights.routability_weight * routability_term
         )
+        
+        # Store individual components for logging/diagnostics
+        reward_info = {
+            "reward_hpwl_dense": float(hpwl_dense_term * self.reward_weights.hpwl_dense_weight),
+            "reward_hpwl_terminal": float(hpwl_terminal_term * self.reward_weights.hpwl_terminal_weight),
+            "reward_drc": float(drc_term * self.reward_weights.drc_penalty),
+            "reward_overlap": float(overlap_term * 0.25 * self.reward_weights.drc_penalty),
+            "reward_routability": float(routability_term * self.reward_weights.routability_weight),
+        }
         self._last_metrics = new_metrics
 
         self.step_count += 1
@@ -189,6 +206,7 @@ class PCBEnv(gym.Env):
         
         info["valid_action"] = valid
         info.update(new_metrics)
+        info.update(reward_info)
         from .reward import hpwl
         info["hpwl"] = hpwl(self.board)
         

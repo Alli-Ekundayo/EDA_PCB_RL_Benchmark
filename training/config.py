@@ -35,7 +35,7 @@ class Config:
     max_grad_norm: float = 0.5
     component_rotations: int = 4
 
-    total_timesteps: int = 100_000
+    total_timesteps: int = 200_000
     eval_freq: int = 5_000
     checkpoint_freq: int = 10_000
     board_dir: str = "data/boards/rl_pcb/base"
@@ -46,20 +46,21 @@ class Config:
     algo: str = "ppo"  # Options: ppo, td3, sac
     tau: float = 0.005
     alpha: float = 0.2
-    replay_buffer_size: int = 25000
+    replay_buffer_size: int = 100_000
     
     # TD3/SAC specific
     expl_noise: float = 0.1
     policy_noise: float = 0.2
     noise_clip: float = 0.5
-    policy_freq: int = 1
+    policy_freq: int = 2
     pi_hidden_sizes: list = None
     qf_hidden_sizes: list = None
 
 
-    hpwl_weight: float = 1.0
+    hpwl_dense_weight: float = 2.0
+    hpwl_terminal_weight: float = 0.5
     drc_penalty: float = 10.0
-    routability_weight: float = 0.1
+    routability_weight: float = 1.0
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":

@@ -129,4 +129,9 @@ class SACAgent:
         for p, pt in zip(self.critic2.parameters(), self.critic2_target.parameters()):
             pt.data.copy_(self.tau * p.data + (1 - self.tau) * pt.data)
             
-        return {"train/critic_loss": critic_loss.item(), "train/actor_loss": actor_loss.item()}
+        return {
+            "train/critic_loss": critic_loss.item(), 
+            "train/actor_loss": actor_loss.item(),
+            "train/mean_q": current_Q1.mean().item(),
+            "train/entropy": -log_probs.mean().item()
+        }

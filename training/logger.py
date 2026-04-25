@@ -6,7 +6,7 @@ LOG_FILE = None
 
 def log_dict(payload: Dict[str, float]) -> None:
     pairs = " ".join([f"{k}={v:.4f}" for k, v in sorted(payload.items())])
-    print(pairs)
+    print(pairs, flush=True)
     
     if LOG_FILE:
         os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)

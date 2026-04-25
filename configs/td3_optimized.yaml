@@ -1,0 +1,35 @@
+# TD3 Optimized Configuration for PCB Placement
+# Based on research feedback to address instability and scale comparison
+board_width: 32
+board_height: 32
+resolution_mm: 0.5
+num_comp_classes: 4
+use_ratsnest: true
+use_criticality: true
+
+# Architecture
+gat_embed_dim: 128
+spatial_embed_dim: 128
+fused_dim: 256
+gat_heads: 4
+
+# Algorithm
+algo: td3
+total_timesteps: 200000
+batch_size: 256
+lr: 0.0003
+gamma: 0.99
+tau: 0.005
+
+# TD3 Specific (Optimized)
+replay_buffer_size: 100000
+expl_noise: 0.1
+policy_noise: 0.2
+noise_clip: 0.5
+policy_freq: 2  # Delayed Policy Updates to reduce overestimation bias
+
+# Placement
+component_rotations: 4
+hpwl_weight: 1.0
+drc_penalty: 10.0
+routability_weight: 0.1

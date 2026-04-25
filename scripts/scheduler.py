@@ -25,26 +25,30 @@ def run_experiment(algo, seed, config, total_timesteps, run_dir):
         cmd.extend(["--total_timesteps", str(total_timesteps)])
     
     print(f"Starting {algo} (seed {seed}) in {checkpoint_dir}")
+    
+    env_vars = os.environ.copy()
+    env_vars["PYTHONUNBUFFERED"] = "1"
+    
     try:
-        # Use subprocess.run to execute the command
-        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        with open(checkpoint_dir / "process.out", "w") as f:
-            f.write(process.stdout)
-        
-        if process.returncode == 0:
-            print(f"[SUCCESS] {algo} (seed {seed})")
-            return True
-        else:
-            print(f"[FAILED] {algo} (seed {seed}). Error Log Snippet:")
-            # Print last 20 lines of the output to help debugging
-            lines = process.stdout.splitlines()
-            for line in lines[-20:]:
-                print(f"  > {line}")
-            return False
+        # Use Popen to stream output in real-time
+        with subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env_vars
+        ) as process:
+            with open(checkpoint_dir / "process.out", "w") as f:
+                for line in process.stdout:
+                    f.write(line)
+                    # Stream to terminal with prefix
+                    print(f"[{algo.upper()} s{seed}] {line.strip()}", flush=True)
+            
+            process.wait()
+            if process.returncode == 0:
+                print(f"[SUCCESS] {algo} (seed {seed})")
+                return True
+            else:
+                print(f"[FAILED] {algo} (seed {seed}) with return code {process.returncode}")
+                return False
     except Exception as e:
         print(f"[ERROR] {algo} (seed {seed}): {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 def main():
