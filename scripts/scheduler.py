@@ -7,6 +7,9 @@ import random
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+AUTO_SEED_MIN = 1_000
+AUTO_SEED_MAX = 99_999
+
 def run_experiment(algo, seed, config, total_timesteps, run_dir):
     checkpoint_dir = Path(run_dir) / f"{algo}_seed_{seed}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -57,7 +60,7 @@ def main():
     parser.add_argument("--algos", type=str, nargs="+", default=["ppo", "td3", "sac"], help="List of algorithms to run (e.g. ppo td3 sac)")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45], help="List of seeds (ignored if --auto_seeds is set)")
     parser.add_argument("--num_seeds", type=int, default=None, help="Number of seeds to generate if using --auto_seeds")
-    parser.add_argument("--auto_seeds", action="store_true", help="Generate random seeds automatically")
+    parser.add_argument("--auto_seeds", action="store_true", help=f"Generate random seeds automatically in [{AUTO_SEED_MIN}, {AUTO_SEED_MAX}]")
     parser.add_argument("--total_timesteps", type=int, default=None, help="Override total timesteps")
     parser.add_argument("--run_dir", type=str, default="runs/experiments", help="Base directory for experiment runs")
     parser.add_argument("--max_workers", type=int, default=4, help="Maximum number of parallel workers")
@@ -71,7 +74,11 @@ def main():
     if args.auto_seeds:
         random.seed(None)  # Use system time for true randomness
         n = args.num_seeds if args.num_seeds is not None else len(args.seeds)
-        seeds = [random.randint(100001, 10000000) for _ in range(n)]
+        span = AUTO_SEED_MAX - AUTO_SEED_MIN + 1
+        if n <= span:
+            seeds = random.sample(range(AUTO_SEED_MIN, AUTO_SEED_MAX + 1), k=n)
+        else:
+            seeds = [random.randint(AUTO_SEED_MIN, AUTO_SEED_MAX) for _ in range(n)]
         print(f"Auto-seeding enabled. Generated {n} random seeds: {seeds}")
 
     tasks = []

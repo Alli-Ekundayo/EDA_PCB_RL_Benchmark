@@ -195,7 +195,9 @@ def generate_report(work_dir, output_pdf, title=None):
     plt.xlabel('Time Step')
     plt.ylabel('Average Return')
     plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend()
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if labels:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(plot_path, dpi=300)
     plt.close()
@@ -243,7 +245,9 @@ def generate_report(work_dir, output_pdf, title=None):
         ax.set_xlabel('Time Step')
         ax.set_ylabel(y_label)
         ax.grid(True, alpha=0.3)
-        ax.legend()
+        handles, labels = ax.get_legend_handles_labels()
+        if labels:
+            ax.legend()
 
     plt.tight_layout()
     plt.savefig(diag_plot_path, dpi=300)

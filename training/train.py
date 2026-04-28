@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import sys
 import copy
+import random
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List
@@ -24,6 +25,18 @@ from training.config import Config
 from training.logger import log_dict
 from training.vec_env import make_vec_env
 from training.replay_buffer import GraphReplayBuffer
+
+
+def set_global_seed(seed: int, torch_deterministic: bool = False) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    if torch_deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
 
 def _graph_to_data(g) -> Data:
     return Data(
@@ -74,7 +87,14 @@ def train_ppo(config: Config, device):
         gat_dim=config.gat_embed_dim, spatial_dim=config.spatial_embed_dim,
         fused_dim=config.fused_dim, gat_heads=config.gat_heads,
     ).to(device)
-    agent = PPOAgent(model=model, lr=config.lr)
+    agent = PPOAgent(
+        model=model,
+        lr=config.lr,
+        clip_range=config.clip_range,
+        ent_coef=config.ent_coef,
+        vf_coef=config.vf_coef,
+        max_grad_norm=config.max_grad_norm,
+    )
     
     checkpoint_dir = Path(config.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +108,7 @@ def train_ppo(config: Config, device):
     for update in range(1, n_updates + 1):
         roll_obs, roll_masks, roll_actions, roll_logp, roll_rewards, roll_dones, roll_values, roll_graphs = [], [], [], [], [], [], [], []
         completed_ep_returns = []  # episodic returns that finished during this rollout
+        metrics_to_log: Dict[str, float] = {}
 
         for _ in range(config.n_steps):
             spatial = torch.as_tensor(obs, dtype=torch.float32, device=device)
@@ -118,7 +139,6 @@ def train_ppo(config: Config, device):
             # or mean if available. For simplicity, we'll take the mean across envs if they are in next_info.
             for r_key in ["reward_hpwl_dense", "reward_hpwl_terminal", "reward_drc", "reward_overlap", "reward_routability"]:
                 vals = _extract_info_values(next_info, r_key, config.n_envs, 0.0)
-                metrics_to_log = metrics_to_log if 'metrics_to_log' in locals() else {}
                 metrics_to_log[f"train/{r_key}"] = float(np.mean(vals))
             
             info = next_info
@@ -144,8 +164,7 @@ def train_ppo(config: Config, device):
         current_mean_ep_return = float(np.mean(recent_returns)) if recent_returns else float(np.mean(roll_rewards))
             
         metrics.update({"train/global_step": float(global_step), "train/mean_reward": current_mean_ep_return})
-        if 'metrics_to_log' in locals():
-            metrics.update(metrics_to_log)
+        metrics.update(metrics_to_log)
         log_dict(metrics)
         if update % 2 == 0:
             torch.save({"model": model.state_dict(), "config": asdict(config)}, checkpoint_dir / f"ppo_step_{global_step}.pt")
@@ -282,6 +301,7 @@ def main():
     if args.log_file:
         import training.logger
         training.logger.LOG_FILE = args.log_file
+    set_global_seed(config.seed, torch_deterministic=config.torch_deterministic)
     print(f"Starting experiment with Algorithm: {config.algo.upper()}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if config.algo == "ppo": train_ppo(config, device)

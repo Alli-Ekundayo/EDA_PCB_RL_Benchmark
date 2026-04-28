@@ -41,6 +41,7 @@ class Config:
     board_dir: str = "data/boards/rl_pcb/base"
     checkpoint_dir: str = "runs/checkpoints"
     seed: int = 42
+    torch_deterministic: bool = False
     
     # Algorithm Selection
     algo: str = "ppo"  # Options: ppo, td3, sac

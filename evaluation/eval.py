@@ -44,6 +44,59 @@ def sync_config_from_checkpoint(checkpoint_path: str, config: Config, device: to
     return config
 
 
+def _continuous_action_to_discrete(
+    action: np.ndarray,
+    action_mask: np.ndarray,
+    width: int,
+    height: int,
+    n_rotations: int,
+) -> int:
+    x_norm, y_norm, rot_norm = (action + 1.0) / 2.0
+    px = int(np.clip(x_norm * width, 0, width - 1))
+    py = int(np.clip(y_norm * height, 0, height - 1))
+    prot = int(np.clip(rot_norm * n_rotations, 0, n_rotations - 1))
+    flat_idx = prot * (width * height) + px * height + py
+
+    if not action_mask.any():
+        return int(flat_idx)
+    if action_mask[int(flat_idx)]:
+        return int(flat_idx)
+
+    valid_indices = np.where(action_mask)[0]
+    valid_rot = valid_indices // (width * height)
+    rem = valid_indices % (width * height)
+    valid_x = rem // height
+    valid_y = rem % height
+    dist = (valid_x - px) ** 2 + (valid_y - py) ** 2 + 0.5 * (valid_rot - prot) ** 2
+    return int(valid_indices[int(np.argmin(dist))])
+
+
+def _select_deterministic_action(
+    model,
+    algo: str,
+    graph_batch: Batch,
+    spatial: torch.Tensor,
+    action_mask_t: torch.Tensor,
+    width: int,
+    height: int,
+    n_rotations: int,
+) -> int:
+    if algo == "ppo":
+        action_t, _, _ = model.act(graph_batch, spatial, action_mask_t, deterministic=True)
+        return int(action_t.item())
+
+    if algo == "td3":
+        continuous = model(spatial, graph_batch).detach().cpu().numpy()[0]
+        return _continuous_action_to_discrete(continuous, action_mask_t[0].cpu().numpy(), width, height, n_rotations)
+
+    if algo == "sac":
+        mu, _log_std = model.forward(spatial, graph_batch)
+        continuous = torch.tanh(mu).detach().cpu().numpy()[0]
+        return _continuous_action_to_discrete(continuous, action_mask_t[0].cpu().numpy(), width, height, n_rotations)
+
+    raise ValueError(f"Unsupported algorithm for evaluation: {algo}")
+
+
 def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_feat_dim: int, edge_feat_dim: int, action_dim: int, device: torch.device):
     """Load a trained model from a checkpoint, supporting PPO, TD3, and SAC."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
@@ -84,17 +137,24 @@ def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_fea
             model = TD3Actor(encoder, pi_hidden).to(device)
         else:
             model = SACActor(encoder, pi_hidden).to(device)
-            
+    else:
+        raise ValueError(f"Unsupported algorithm in checkpoint/config: {algo}")
+
+    if "model" not in checkpoint:
+        raise KeyError(f"Checkpoint at {checkpoint_path} does not contain 'model' weights")
     model.load_state_dict(checkpoint["model"])
     model.eval()
     return model
 
 
 def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[str]] = None) -> Dict[str, float]:
+    if not Path(checkpoint_path).exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Sync config from checkpoint to ensure environment matches training
     sync_config_from_checkpoint(checkpoint_path, config, device)
+    algo = config.algo.lower()
     
     rotations = tuple(90 * i for i in range(config.component_rotations))
     
@@ -150,8 +210,16 @@ def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[st
             graph_batch = Batch.from_data_list([graph]).to(device)
             action_mask_t = torch.as_tensor(action_mask[None, ...], dtype=torch.bool, device=device)
             with torch.no_grad():
-                action_t, _, _ = model.act(graph_batch, spatial, action_mask_t, deterministic=True)
-            action = int(action_t.item())
+                action = _select_deterministic_action(
+                    model=model,
+                    algo=algo,
+                    graph_batch=graph_batch,
+                    spatial=spatial,
+                    action_mask_t=action_mask_t,
+                    width=config.board_width,
+                    height=config.board_height,
+                    n_rotations=len(rotations),
+                )
             obs, _, terminated, truncated, info = env.step(action)
             graph = _graph_to_data(info["graph"])
             action_mask = info["action_mask"]

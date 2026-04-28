@@ -106,7 +106,7 @@ def train_td3_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
     model.learn(total_timesteps=n_timesteps)
     
     print("TD3 training complete!")
-    env.close()
+    train_env.close()
     
     return {
         "algorithm": "TD3",
@@ -153,7 +153,7 @@ def train_sac_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
     model.learn(total_timesteps=n_timesteps)
     
     print("SAC training complete!")
-    env.close()
+    train_env.close()
     
     return {
         "algorithm": "SAC",
