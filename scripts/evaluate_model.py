@@ -6,8 +6,6 @@ import platform
 import numpy as np
 import torch
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -22,11 +20,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from training.config import Config
 from environment.pcb_env import PCBEnv
-from evaluation.eval import load_model, _graph_to_data, sync_config_from_checkpoint
+from evaluation.eval import load_model, sync_config_from_checkpoint, _select_deterministic_action
+from evaluation.plotting import plot_placement
+from training.graph_utils import graph_to_data
 from torch_geometric.data import Batch
 from routing.router import UnifiedPCBRouter
 from environment.reward import pattern_routability_proxy
 from evaluation.metrics import summarize_metrics
+
+def _is_fully_routed(metrics: dict) -> bool:
+    total_routes = float(metrics.get("routed_nets_established", 0))
+    total_nets = float(metrics.get("total_nets", 1))
+    return total_routes >= total_nets
 
 def find_best_checkpoint(work_dir):
     """Find the most recently modified .pt checkpoint, preferring those marked 'final'."""
@@ -37,52 +42,6 @@ def find_best_checkpoint(work_dir):
     if finals:
         return str(sorted(finals, key=os.path.getmtime)[-1])
     return str(sorted(checkpoints, key=os.path.getmtime)[-1])
-
-def plot_placement(board, out_path):
-    fig, ax = plt.subplots(figsize=(12, 12))
-    ax.set_xlim(0, board.width)
-    ax.set_ylim(0, board.height)
-    ax.invert_yaxis()
-    
-    ax.set_xticks(np.arange(0, board.width+1, 1))
-    ax.set_yticks(np.arange(0, board.height+1, 1))
-    ax.grid(color='gray', linestyle='-', linewidth=0.5, alpha=0.15)
-    
-    for x in range(board.width):
-        for y in range(board.height):
-            if board.keepout[x, y]:
-                ax.add_patch(patches.Rectangle((x, y), 1, 1, facecolor='#e74c3c', alpha=0.3))
-                
-    for comp in board.components:
-        if comp.placed:
-            x, y = comp.position
-            fp = comp.footprint_for_rotation()
-            w, h = fp.shape
-            for dx in range(w):
-                for dy in range(h):
-                    if fp[dx, dy]:
-                        ax.add_patch(patches.Rectangle((x+dx, y+dy), 1, 1, facecolor='#3498db', alpha=0.7, edgecolor='#2980b9'))
-            ax.text(x + w/2, y + h/2, comp.ref, ha='center', va='center', color='black', fontweight='bold', fontsize=8)
-            
-    centers = {}
-    for comp in board.components:
-        if comp.placed:
-            fp = comp.footprint_for_rotation()
-            w, h = fp.shape
-            centers[comp.ref] = (comp.position[0] + w/2, comp.position[1] + h/2)
-            
-    for net_id, refs in board.nets.items():
-        placed_refs = [r for r in refs if r in centers]
-        for i in range(len(placed_refs)):
-            for j in range(i+1, len(placed_refs)):
-                p1 = centers[placed_refs[i]]
-                p2 = centers[placed_refs[j]]
-                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='#2ecc71', alpha=0.5, linestyle='--', linewidth=1.5)
-
-    plt.title("Physical PCB Placement & Routing Skeleton", fontsize=18, fontweight='bold', pad=20)
-    ax.set_aspect('equal')
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
 
 def build_pdf_report(metrics, plot_path, output_pdf, title="Reinforcement Learning - Evaluation Report"):
     doc = SimpleDocTemplate(output_pdf, pagesize=A4)
@@ -135,7 +94,8 @@ def build_pdf_report(metrics, plot_path, output_pdf, title="Reinforcement Learni
         "routability_proxy": "Heuristic estimate of routing success",
         "num_vias": "Number of layer transitions (vias)",
         "total_nets": "Total number of connections in netlist",
-        "components_placed": "Count of successfully placed components"
+        "components_placed": "Count of successfully placed components",
+        "routed_nets_established": "Nets with confirmed routing results",
     }
 
     for k, v in metrics.items():
@@ -154,7 +114,7 @@ def build_pdf_report(metrics, plot_path, output_pdf, title="Reinforcement Learni
     story.append(t)
     
     # Routability Summary
-    is_fully_routed = metrics.get("general_routes_established", 0) == metrics.get("total_nets", 1)
+    is_fully_routed = _is_fully_routed(metrics)
     status_color = colors.green if is_fully_routed else colors.red
     story.append(Spacer(1, 0.4 * inch))
     story.append(Paragraph(f"<b>Final Routing Status: {'SUCCESS' if is_fully_routed else 'PARTIAL'}</b>", 
@@ -191,9 +151,16 @@ def main():
     rotations = tuple(90 * i for i in range(config.component_rotations))
     print(f"Initializing environment with {args.board_file}...")
     try:
-        env = PCBEnv(board_path=args.board_file, width=config.board_width, height=config.board_height, component_rotations=rotations)
+        env = PCBEnv(
+            board_path=args.board_file,
+            width=config.board_width,
+            height=config.board_height,
+            component_rotations=rotations,
+            use_ratsnest=config.use_ratsnest,
+            use_criticality=config.use_criticality,
+        )
         obs, info = env.reset()
-        graph = _graph_to_data(info["graph"])
+        graph = graph_to_data(info["graph"])
     except FileNotFoundError:
         print(f"Error: Could not find board file at {args.board_file}")
         return
@@ -224,11 +191,18 @@ def main():
         action_mask_t = torch.as_tensor(action_mask[None, ...], dtype=torch.bool, device=device)
         
         with torch.no_grad():
-            action_t, _, _ = model.act(graph_batch, spatial, action_mask_t, deterministic=True)
-        
-        action = int(action_t.item())
+            action = _select_deterministic_action(
+                model=model,
+                algo=config.algo.lower(),
+                graph_batch=graph_batch,
+                spatial=spatial,
+                action_mask_t=action_mask_t,
+                width=config.board_width,
+                height=config.board_height,
+                n_rotations=len(rotations),
+            )
         obs, _, terminated, truncated, info = env.step(action)
-        graph = _graph_to_data(info["graph"])
+        graph = graph_to_data(info["graph"])
         
         if not info.get("valid_action", True):
             invalid_actions += 1
@@ -253,8 +227,7 @@ def main():
     metrics["total_nets"] = len(board.nets)
     metrics["components_placed"] = len([c for c in board.components if c.placed])
     metrics["total_components"] = len(board.components)
-    metrics["general_routes_established"] = len(routed_board.general_routes)
-    metrics["differential_routes_established"] = len(routed_board.diff_routes)
+    metrics["routed_nets_established"] = routed_board.num_routed_nets()
     
     if routed_board.routed_wirelength >= 0:
         metrics["routed_wirelength_mm"] = routed_board.routed_wirelength

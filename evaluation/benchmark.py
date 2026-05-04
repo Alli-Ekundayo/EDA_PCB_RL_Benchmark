@@ -61,7 +61,7 @@ def benchmark_on_boards(
     checkpoint = resolve_checkpoint(config.checkpoint_dir, algo=config.algo.lower())
     print(f"Evaluating {config.algo.upper()} (checkpoint: {checkpoint})...")
     board_eval_set: List[str] = [str(p) for p in boards for _ in range(max(1, n_episodes_per_board))]
-    eval_metrics = evaluate(str(checkpoint), config, board_files=board_eval_set)
+    eval_metrics = evaluate(str(checkpoint), config, board_files=board_eval_set, use_physical_routing=True)
     ppo_result = {
         "algorithm": f"{config.algo.upper()}",
         "n_boards": len(boards),

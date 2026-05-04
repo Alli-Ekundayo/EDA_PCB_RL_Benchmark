@@ -6,28 +6,6 @@ from scipy.ndimage import binary_dilation
 from .board import Board, Component, occupied_grid
 
 
-def _in_bounds(board: Board, x: int, y: int, fp: np.ndarray) -> bool:
-    w, h = fp.shape
-    return x >= 0 and y >= 0 and (x + w) <= board.width and (y + h) <= board.height
-
-
-def _placement_violates_drc(board: Board, component: Component, x: int, y: int) -> bool:
-    fp = component.footprint_for_rotation().astype(bool)
-    if not _in_bounds(board, x, y, fp):
-        return True
-
-    occupied = occupied_grid(board, exclude_ref=component.ref)
-    blocked = occupied | board.keepout
-
-    if board.min_clearance > 0:
-        kernel = np.ones((2 * board.min_clearance + 1, 2 * board.min_clearance + 1), dtype=bool)
-        blocked = binary_dilation(blocked, structure=kernel)
-
-    w, h = fp.shape
-    region = blocked[x : x + w, y : y + h]
-    return bool(np.any(region & fp))
-
-
 def compute_action_mask(
     board: Board,
     component: Component,
@@ -72,9 +50,8 @@ def compute_action_mask(
             for dx, dy in zip(fx, fy):
                 # Shift blocked grid by (dx, dy) and OR it into invalid
                 # We only care about the region that can stay in bounds
-                if w <= board.width and h <= board.height:
-                    invalid[0 : board.width - w + 1, 0 : board.height - h + 1] |= \
-                        blocked[dx : dx + board.width - w + 1, dy : dy + board.height - h + 1]
+                invalid[0 : board.width - w + 1, 0 : board.height - h + 1] |= \
+                    blocked[dx : dx + board.width - w + 1, dy : dy + board.height - h + 1]
             
             mask &= ~invalid
 

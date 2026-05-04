@@ -61,6 +61,9 @@ class RoutedBoard:
     output_kicad_pcb : Optional[str]
         Absolute path to the routed ``*_routed.kicad_pcb`` file written by
         the Rust binary, if a KiCad file was supplied and routing succeeded.
+    routed_net_ids : List[int]
+        Net IDs with confirmed routed paths. In stub-only mode this remains
+        empty; after successful physical routing this is set to all board nets.
     """
 
     board: Board
@@ -70,6 +73,10 @@ class RoutedBoard:
     num_vias: int = -1
     num_bends: int = -1
     output_kicad_pcb: Optional[str] = None
+    routed_net_ids: List[int] = field(default_factory=list)
+
+    def num_routed_nets(self) -> int:
+        return len(self.routed_net_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +197,7 @@ class UnifiedPCBRouter:
             general_routes=general_routes,
             diff_routes=diff_routes,
         )
+        result.routed_net_ids = sorted({net_id for net_id, path in {**general_routes, **diff_routes}.items() if path})
 
         # ------------------------------------------------------------------
         # Attempt to invoke the Rust binary
@@ -274,6 +282,8 @@ class UnifiedPCBRouter:
             result.num_vias = vias
             result.num_bends = bends
             result.output_kicad_pcb = out if Path(out).exists() else None
+            if result.output_kicad_pcb is not None and wl >= 0:
+                result.routed_net_ids = sorted(placed_board.nets.keys())
 
             logger.info(
                 "Rust router finished: WL=%.4f mm, vias=%d, bends=%d → %s",

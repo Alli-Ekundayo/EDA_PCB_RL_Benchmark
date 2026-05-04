@@ -70,9 +70,10 @@ def test_benchmark_uses_discovered_boards_and_repeats_episodes(tmp_path, monkeyp
 
     captured = {}
 
-    def fake_evaluate(checkpoint_path, config, board_files=None):
+    def fake_evaluate(checkpoint_path, config, board_files=None, use_physical_routing=False):
         captured["checkpoint_path"] = checkpoint_path
         captured["board_files"] = list(board_files or [])
+        captured["use_physical_routing"] = use_physical_routing
         return {"eval/hpwl_mean": 1.0, "eval/hpwl_std": 0.0, "eval/invalid_action_rate": 0.0, "eval/episode_length_mean": 3.0}
 
     monkeypatch.setattr(benchmark_mod, "evaluate", fake_evaluate)
@@ -81,6 +82,7 @@ def test_benchmark_uses_discovered_boards_and_repeats_episodes(tmp_path, monkeyp
     assert len(captured["board_files"]) == 4
     assert str(boards_dir / "a.json") in captured["board_files"]
     assert str(boards_dir / "b.json") in captured["board_files"]
+    assert captured["use_physical_routing"] is True
 
 
 def test_benchmark_raises_when_checkpoint_missing(tmp_path):

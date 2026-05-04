@@ -5,20 +5,19 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
-from torch_geometric.data import Batch, Data
+from torch_geometric.data import Batch
 
+from environment.action_projection import continuous_action_to_discrete
 from environment.pcb_env import PCBEnv
 from environment.reward import hpwl
-from models.networks import DualStreamActorCritic
+from models.networks import DualStreamActorCritic, SpatialEncoder, GATEncoder, SharedFusionEncoder
+from routing.router import UnifiedPCBRouter
 from training.config import Config
+from training.graph_utils import graph_to_data
 
 
-def _graph_to_data(g) -> Data:
-    return Data(
-        x=torch.as_tensor(g.node_features, dtype=torch.float32),
-        edge_index=torch.as_tensor(g.edge_index, dtype=torch.long),
-        edge_attr=torch.as_tensor(g.edge_attr, dtype=torch.float32),
-    )
+def _graph_to_data(g):
+    return graph_to_data(g)
 
 
 def sync_config_from_checkpoint(checkpoint_path: str, config: Config, device: torch.device):
@@ -51,24 +50,7 @@ def _continuous_action_to_discrete(
     height: int,
     n_rotations: int,
 ) -> int:
-    x_norm, y_norm, rot_norm = (action + 1.0) / 2.0
-    px = int(np.clip(x_norm * width, 0, width - 1))
-    py = int(np.clip(y_norm * height, 0, height - 1))
-    prot = int(np.clip(rot_norm * n_rotations, 0, n_rotations - 1))
-    flat_idx = prot * (width * height) + px * height + py
-
-    if not action_mask.any():
-        return int(flat_idx)
-    if action_mask[int(flat_idx)]:
-        return int(flat_idx)
-
-    valid_indices = np.where(action_mask)[0]
-    valid_rot = valid_indices // (width * height)
-    rem = valid_indices % (width * height)
-    valid_x = rem // height
-    valid_y = rem % height
-    dist = (valid_x - px) ** 2 + (valid_y - py) ** 2 + 0.5 * (valid_rot - prot) ** 2
-    return int(valid_indices[int(np.argmin(dist))])
+    return continuous_action_to_discrete(action, action_mask, width, height, n_rotations)
 
 
 def _select_deterministic_action(
@@ -115,22 +97,12 @@ def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_fea
         ).to(device)
     elif algo == "td3" or algo == "sac":
         # Off-policy algorithms use a shared encoder but different heads
-        from models.networks import SpatialEncoder, GATEncoder
         from models.td3_agent import TD3Actor
         from models.sac_agent import SACActor
         
         spatial_enc = SpatialEncoder(in_channels=obs_channels, embed_dim=config.spatial_embed_dim)
         gat_enc = GATEncoder(node_feat_dim, edge_feat_dim, embed_dim=config.gat_embed_dim)
-        
-        class SharedEncoder(torch.nn.Module):
-            def __init__(self, s_enc, g_enc, fused_dim):
-                super().__init__()
-                self.spatial_enc, self.gat_enc, self.fused_dim = s_enc, g_enc, fused_dim
-                self.fusion = torch.nn.Linear(s_enc.embed_dim + g_enc.embed_dim, fused_dim)
-            def forward(self, s, g):
-                return torch.relu(self.fusion(torch.cat([self.spatial_enc(s), self.gat_enc(g)], dim=-1)))
-        
-        encoder = SharedEncoder(spatial_enc, gat_enc, config.fused_dim)
+        encoder = SharedFusionEncoder(spatial_enc, gat_enc, config.fused_dim)
         pi_hidden = config.pi_hidden_sizes if config.pi_hidden_sizes else [256]
         
         if algo == "td3":
@@ -147,7 +119,22 @@ def load_model(checkpoint_path: str, config: Config, obs_channels: int, node_fea
     return model
 
 
-def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[str]] = None) -> Dict[str, float]:
+def _infer_raw_kicad_path(board_file: str) -> Optional[str]:
+    board_path = Path(board_file)
+    raw_dir = board_path.parent.parent / "base_raw"
+    if raw_dir.is_dir():
+        candidates = sorted(raw_dir.glob("*.kicad_pcb"))
+        if candidates:
+            return str(candidates[0])
+    return None
+
+
+def evaluate(
+    checkpoint_path: str,
+    config: Config,
+    board_files: Optional[List[str]] = None,
+    use_physical_routing: bool = False,
+) -> Dict[str, float]:
     if not Path(checkpoint_path).exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -178,17 +165,22 @@ def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[st
     hpwls: List[float] = []
     invalid_rates: List[float] = []
     lengths: List[int] = []
+    routed_completion_rates: List[float] = []
+    routed_wirelengths_mm: List[float] = []
 
     model = None
+    router = UnifiedPCBRouter() if use_physical_routing else None
     for board_file in board_files:
         env = PCBEnv(
             board_path=board_file,
             width=config.board_width,
             height=config.board_height,
             component_rotations=rotations,
+            use_ratsnest=config.use_ratsnest,
+            use_criticality=config.use_criticality,
         )
         obs, info = env.reset(seed=config.seed)
-        graph = _graph_to_data(info["graph"])
+        graph = graph_to_data(info["graph"])
         action_mask = info["action_mask"]
 
         if model is None:
@@ -221,7 +213,7 @@ def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[st
                     n_rotations=len(rotations),
                 )
             obs, _, terminated, truncated, info = env.step(action)
-            graph = _graph_to_data(info["graph"])
+            graph = graph_to_data(info["graph"])
             action_mask = info["action_mask"]
             invalid += 0 if info.get("valid_action", True) else 1
             steps += 1
@@ -229,11 +221,24 @@ def evaluate(checkpoint_path: str, config: Config, board_files: Optional[List[st
         hpwls.append(hpwl(env.board))
         invalid_rates.append(float(invalid) / max(steps, 1))
         lengths.append(steps)
+
+        if use_physical_routing and router is not None:
+            routed = router.route(env.board, kicad_pcb_path=_infer_raw_kicad_path(board_file))
+            total_nets = max(1, len(env.board.nets))
+            routed_count = routed.num_routed_nets()
+            routed_completion_rates.append(float(routed_count / total_nets))
+            if routed.routed_wirelength >= 0:
+                routed_wirelengths_mm.append(float(routed.routed_wirelength))
         env.close()
 
-    return {
+    out = {
         "eval/hpwl_mean": float(np.mean(hpwls)),
         "eval/hpwl_std": float(np.std(hpwls)),
         "eval/invalid_action_rate": float(np.mean(invalid_rates)),
         "eval/episode_length_mean": float(np.mean(lengths)),
     }
+    if use_physical_routing:
+        out["eval/routed_completion_rate_mean"] = float(np.mean(routed_completion_rates)) if routed_completion_rates else 0.0
+        out["eval/routed_wirelength_mm_mean"] = float(np.mean(routed_wirelengths_mm)) if routed_wirelengths_mm else -1.0
+        out["eval/routed_wirelength_available_rate"] = float(len(routed_wirelengths_mm) / max(1, len(board_files)))
+    return out

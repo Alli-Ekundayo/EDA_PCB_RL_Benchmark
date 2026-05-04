@@ -67,3 +67,17 @@ class DualStreamActorCritic(nn.Module):
         action = torch.argmax(dist.probs, dim=-1) if deterministic else dist.sample()
         log_prob = dist.log_prob(action)
         return action, log_prob, out.value
+
+
+class SharedFusionEncoder(nn.Module):
+    """Shared encoder used by off-policy actor/critic heads."""
+
+    def __init__(self, spatial_encoder: SpatialEncoder, gat_encoder: GATEncoder, fused_dim: int):
+        super().__init__()
+        self.spatial_enc = spatial_encoder
+        self.gat_enc = gat_encoder
+        self.fused_dim = fused_dim
+        self.fusion = nn.Linear(spatial_encoder.embed_dim + gat_encoder.embed_dim, fused_dim)
+
+    def forward(self, spatial_obs: torch.Tensor, graph_batch: Batch) -> torch.Tensor:
+        return torch.relu(self.fusion(torch.cat([self.spatial_enc(spatial_obs), self.gat_enc(graph_batch)], dim=-1)))

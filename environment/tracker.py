@@ -10,8 +10,8 @@ class PlacementTracker:
         self.max_steps = max_steps
         self.frames = deque(maxlen=max_steps)
         self.ratsnest_frames = deque(maxlen=max_steps)
-        self.rewards = []
-        self.hpwls = []
+        self.rewards = deque(maxlen=max_steps)
+        self.hpwls = deque(maxlen=max_steps)
         
     def record_step(self, board_state, ratsnest_map, reward, hpwl):
         # We store a simplified representation for the video
@@ -23,8 +23,8 @@ class PlacementTracker:
     def reset(self):
         self.frames.clear()
         self.ratsnest_frames.clear()
-        self.rewards = []
-        self.hpwls = []
+        self.rewards.clear()
+        self.hpwls.clear()
         
     def save_video(self, output_path, fps=10):
         if not self.frames:

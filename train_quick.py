@@ -47,6 +47,8 @@ def quick_train():
         height=cfg.board_height,
         component_rotations=rotations,
         reward_weights=reward_weights,
+        use_ratsnest=cfg.use_ratsnest,
+        use_criticality=cfg.use_criticality,
     )
     
     print("Resetting env...")

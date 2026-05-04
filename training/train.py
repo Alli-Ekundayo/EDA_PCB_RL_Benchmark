@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 import numpy as np
 import os
 import torch
-from torch_geometric.data import Data, Batch
+from torch_geometric.data import Batch
 
 from collections import deque
 # Add parent directory to path for imports
@@ -17,14 +17,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from environment.reward import RewardWeights
 from environment.wrappers import ContinuousToDiscrete
-from models.networks import DualStreamActorCritic, SpatialEncoder, GATEncoder
+from models.networks import DualStreamActorCritic, SpatialEncoder, GATEncoder, SharedFusionEncoder
 from models.ppo_agent import PPOAgent, RolloutBatch
 from models.td3_agent import TD3Agent, TD3Actor, TD3Critic
 from models.sac_agent import SACAgent, SACActor, SACCritic
 from training.config import Config
+from training.graph_utils import graph_to_data
 from training.logger import log_dict
 from training.vec_env import make_vec_env
 from training.replay_buffer import GraphReplayBuffer
+
+OFF_POLICY_DEFAULT_TIMESTEPS = 50_000
 
 
 def set_global_seed(seed: int, torch_deterministic: bool = False) -> None:
@@ -38,12 +41,8 @@ def set_global_seed(seed: int, torch_deterministic: bool = False) -> None:
         torch.backends.cudnn.benchmark = False
 
 
-def _graph_to_data(g) -> Data:
-    return Data(
-        x=torch.as_tensor(g.node_features, dtype=torch.float32),
-        edge_index=torch.as_tensor(g.edge_index, dtype=torch.long),
-        edge_attr=torch.as_tensor(g.edge_attr, dtype=torch.float32),
-    )
+def _graph_to_data(g):
+    return graph_to_data(g)
 
 def _extract_info_values(info: Dict[str, Any], key: str, n_envs: int, default):
     if key not in info: return [default for _ in range(n_envs)]
@@ -75,6 +74,7 @@ def train_ppo(config: Config, device):
     env = make_vec_env(
         n_envs=config.n_envs, board_dir=config.board_dir, width=config.board_width,
         height=config.board_height, component_rotations=rotations, reward_weights=reward_weights,
+        use_ratsnest=config.use_ratsnest, use_criticality=config.use_criticality,
     )
     obs, info = env.reset(seed=config.seed)
     graph_objs = _extract_info_values(info, "graph", config.n_envs, None)
@@ -184,7 +184,9 @@ def train_off_policy(config: Config, device):
     base_env = PCBEnv(
         board_dir=config.board_dir, width=config.board_width, height=config.board_height, 
         component_rotations=tuple(90*i for i in range(config.component_rotations)),
-        reward_weights=reward_weights
+        reward_weights=reward_weights,
+        use_ratsnest=config.use_ratsnest,
+        use_criticality=config.use_criticality,
     )
     env = ContinuousToDiscrete(base_env)
     obs, info = env.reset(seed=config.seed)
@@ -193,19 +195,10 @@ def train_off_policy(config: Config, device):
     spatial_enc = SpatialEncoder(in_channels=obs.shape[0], embed_dim=config.spatial_embed_dim)
     gat_enc = GATEncoder(graph_data.x.shape[1], graph_data.edge_attr.shape[1] if graph_data.edge_attr.numel() > 0 else 4, embed_dim=config.gat_embed_dim)
     
-    # Shared DualStream logic
-    class SharedEncoder(torch.nn.Module):
-        def __init__(self, s_enc, g_enc, spatial_dim, gat_dim, fused_dim):
-            super().__init__()
-            self.spatial_enc, self.gat_enc, self.fused_dim = s_enc, g_enc, fused_dim
-            self.fusion = torch.nn.Linear(spatial_dim + gat_dim, fused_dim)
-        def forward(self, s, g):
-            return torch.relu(self.fusion(torch.cat([self.spatial_enc(s), self.gat_enc(g)], dim=-1)))
-
     pi_hidden = config.pi_hidden_sizes if config.pi_hidden_sizes else [256]
     qf_hidden = config.qf_hidden_sizes if config.qf_hidden_sizes else [256]
 
-    encoder = SharedEncoder(spatial_enc, gat_enc, config.spatial_embed_dim, config.gat_embed_dim, config.fused_dim).to(device)
+    encoder = SharedFusionEncoder(spatial_enc, gat_enc, config.fused_dim).to(device)
     if config.algo == "td3":
         agent = TD3Agent(
             TD3Actor(encoder, pi_hidden).to(device), 
@@ -296,6 +289,8 @@ def main():
     config = Config.from_yaml(args.config)
     if args.algo: config.algo = args.algo
     if args.total_timesteps: config.total_timesteps = args.total_timesteps
+    elif config.algo in {"td3", "sac"} and config.total_timesteps > OFF_POLICY_DEFAULT_TIMESTEPS:
+        config.total_timesteps = OFF_POLICY_DEFAULT_TIMESTEPS
     if args.checkpoint_dir: config.checkpoint_dir = args.checkpoint_dir
     if args.seed is not None: config.seed = args.seed
     if args.log_file:

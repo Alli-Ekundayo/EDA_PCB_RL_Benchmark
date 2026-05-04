@@ -21,8 +21,16 @@ def get_occupied_cells(board: Board, class_id: int) -> np.ndarray:
     return grid
 
 
-def compute_sdf(board: Board, num_classes: int = NUM_COMPONENT_CLASSES) -> np.ndarray:
-    tensor = np.zeros((num_classes + 3, board.width, board.height), dtype=np.float32)
+def compute_sdf(
+    board: Board,
+    num_classes: int = NUM_COMPONENT_CLASSES,
+    *,
+    use_ratsnest: bool = True,
+    use_criticality: bool = True,
+    precomputed_ratsnest: tuple[np.ndarray, np.ndarray] | None = None,
+) -> np.ndarray:
+    extra_channels = 1 + int(use_ratsnest) + int(use_criticality)
+    tensor = np.zeros((num_classes + extra_channels, board.width, board.height), dtype=np.float32)
 
     for cls in range(num_classes):
         occupied = get_occupied_cells(board, class_id=cls)
@@ -31,10 +39,17 @@ def compute_sdf(board: Board, num_classes: int = NUM_COMPONENT_CLASSES) -> np.nd
         else:
             tensor[cls] = np.full((board.width, board.height), 999.0, dtype=np.float32)
 
-    tensor[num_classes] = distance_transform_edt(~board.keepout).astype(np.float32)
-    density, criticality = compute_ratsnest_maps(board)
-    tensor[num_classes + 1] = density
-    tensor[num_classes + 2] = criticality
+    idx = num_classes
+    tensor[idx] = distance_transform_edt(~board.keepout).astype(np.float32)
+    idx += 1
+
+    if use_ratsnest or use_criticality:
+        density, criticality = precomputed_ratsnest if precomputed_ratsnest is not None else compute_ratsnest_maps(board)
+        if use_ratsnest:
+            tensor[idx] = density
+            idx += 1
+        if use_criticality:
+            tensor[idx] = criticality
 
     return tensor
 

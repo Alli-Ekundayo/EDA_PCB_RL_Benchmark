@@ -16,6 +16,8 @@ def make_vec_env(
     height: int = 32,
     component_rotations: tuple[int, ...] = (0, 90, 180, 270),
     reward_weights: Optional[RewardWeights] = None,
+    use_ratsnest: bool = True,
+    use_criticality: bool = True,
 ):
     path = Path(board_dir)
     if path.is_file():
@@ -39,6 +41,8 @@ def make_vec_env(
                 pcb_idx=pcb_idx,
                 component_rotations=component_rotations,
                 reward_weights=reward_weights,
+                use_ratsnest=use_ratsnest,
+                use_criticality=use_criticality,
             )
 
         return _init

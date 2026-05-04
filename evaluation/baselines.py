@@ -25,6 +25,8 @@ def make_continuous_vec_env(
     height: int = 32,
     component_rotations: tuple[int, ...] = (0, 90, 180, 270),
     reward_weights: Optional[RewardWeights] = None,
+    use_ratsnest: bool = True,
+    use_criticality: bool = True,
 ):
     from gymnasium import Wrapper, spaces
     from gymnasium.vector import AsyncVectorEnv
@@ -57,6 +59,8 @@ def make_continuous_vec_env(
                 pcb_idx=pcb_idx,
                 component_rotations=component_rotations,
                 reward_weights=reward_weights,
+                use_ratsnest=use_ratsnest,
+                use_criticality=use_criticality,
             )
             return ActionWrapperContinuous(env)
         return _init
@@ -87,6 +91,8 @@ def train_td3_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
         height=config.board_height,
         component_rotations=rotations,
         reward_weights=reward_weights,
+        use_ratsnest=config.use_ratsnest,
+        use_criticality=config.use_criticality,
     )
     
     # TD3 hyperparameters
@@ -134,6 +140,8 @@ def train_sac_baseline(config: Config, n_timesteps: int = 50000) -> Dict[str, fl
         height=config.board_height,
         component_rotations=rotations,
         reward_weights=reward_weights,
+        use_ratsnest=config.use_ratsnest,
+        use_criticality=config.use_criticality,
     )
     
     # SAC hyperparameters
